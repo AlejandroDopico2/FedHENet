@@ -21,7 +21,7 @@ class Coordinador:
         if encrypted and ctx and ctx.has_secret_key():
             raise ValueError("Pasaste un contexto con clave privada al coordinador")
         
-        self.rolann = ROLANN(num_classes=num_classes, encrypted=encrypted, contexts=ctx)
+        self.rolann = ROLANN(num_classes=num_classes, encrypted=encrypted, context=ctx)
         self.device = device
 
         self.M_glb = []  # Matriz M global acumulada para cada clase
