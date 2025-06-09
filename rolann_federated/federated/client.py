@@ -11,14 +11,18 @@ import pickle
 import base64
 import paho.mqtt.client as mqtt
 from paho.mqtt.client import CallbackAPIVersion
-from core import ROLANN  # Asegúrate de que la ruta es correcta
+from ..core import ROLANN  # Asegúrate de que la ruta es correcta
 import tenseal as ts
 
 class Cliente:
     def __init__(self, num_classes, dataset, device, client_id: int, broker: str = "localhost", port: int = 1883, encrypted: bool = False, ctx: ts.Context | None = None):
 
+        # Si encrypted=True pero context NO tiene clave secreta, falla:
+        if encrypted and (ctx is None or not ctx.has_secret_key()):
+            raise ValueError("Para el cliente, context debe incluir clave privada")
+        
         self.device = device # Dispositivo (CPU o GPU) donde se ejecutará el cliente
-        self.rolann = ROLANN(num_classes, encrypted, ctx) # Instancia de la clase ROLANN
+        self.rolann = ROLANN(num_classes=num_classes, encrypted=encrypted, context=ctx) # Instancia de la clase ROLANN
         self.loader = DataLoader(dataset, batch_size=128, shuffle=True) # dataset local
 
         # Cada cliente crea su propia ResNet preentrenada y congelada
