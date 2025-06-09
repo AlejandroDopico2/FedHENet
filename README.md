@@ -14,7 +14,7 @@ Librería de aprendizaje federado que combina:
 ## Instalación
 
 ```bash
-git clone https://github.com/tu_usuario/rolann-federated.git
+git clone https://github.com/Ivanprdg/Libreria_federated_rolann.git
 cd rolann_federated
 pip install -e .
 ```
