@@ -46,10 +46,6 @@ Puedes modificar estos valores directamente en el bloque de creación de context
 ## Ejemplo de uso
 
 1. **Levanta un broker MQTT** (por ejemplo Mosquitto):
-   ```bash
-   # Local:
-   pip install mosquitto
-   ```
 
 2. **Ejecuta el ejemplo** `example.py` (ya incluido en el paquete):
    ```bash
