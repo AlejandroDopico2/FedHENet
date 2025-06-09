@@ -61,7 +61,11 @@ for c in clients:
 
 # El coordinador agregará y publicará automáticamente el modelo global.
 
-# 8) Evaluación sobre el conjunto completo
+# 8) Dar tiempo a que los clientes reciban el modelo global por MQTT
+import time
+time.sleep(2)
+
+# 9) Evaluación sobre el conjunto completo
 print("---- Evaluación global ----")
 loader_train = DataLoader(ds_full_train, batch_size=32)
 loader_test  = DataLoader(ds_test, batch_size=32)
