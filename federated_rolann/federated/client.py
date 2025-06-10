@@ -11,7 +11,7 @@ import pickle
 import base64
 import paho.mqtt.client as mqtt
 from paho.mqtt.client import CallbackAPIVersion
-from ..core import ROLANN  # Asegúrate de que la ruta es correcta
+from ..core import ROLANN
 import tenseal as ts
 
 class Cliente:

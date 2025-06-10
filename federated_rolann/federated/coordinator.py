@@ -194,7 +194,4 @@ class Coordinador:
         self.rolann.ug = ug_tensor_list
         self.rolann.sg = sg_tensor_list
         
-        # Recalcula los pesos globales en base a las nuevas matrices agregadas
-        # self.rolann._calculate_weights() creo que esto sobra
-
 

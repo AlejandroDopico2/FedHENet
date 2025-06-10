@@ -20,8 +20,8 @@ def create_context(
 def serialize_context(ctx: ts.Context, secret_key: bool) -> bytes:
     """
     Serializa el contexto:
-     - secret_key=True   → incluye la clave secreta (para clientes).
-     - secret_key=False  → muta el mismo ctx a público con make_context_public()
+     - secret_key=True -> incluye la clave secreta (para clientes).
+     - secret_key=False -> muta el mismo ctx a público con make_context_public()
                            (descarta la secret key)
                            y serializa sin clave secreta.
     """

@@ -20,8 +20,6 @@ class ROLANN(nn.Module):
         self,
         num_classes: int,
         lamb: float = 0.01,
-        sparse: bool = False,
-        activation: str = "logs",
         encrypted: bool = False, # Añadimos variable para cifrado
         context: ts.Context | None = None,
     ):
@@ -30,18 +28,9 @@ class ROLANN(nn.Module):
         self.num_classes = num_classes
         self.lamb = lamb  # Regularization hyperparameter
 
-        if activation == "logs":  # Logistic activation functions
-            self.f = torch.sigmoid
-            self.finv = lambda x: torch.log(x / (1 - x))
-            self.fderiv = lambda x: x * (1 - x)
-        elif activation == "rel":  # ReLU activation functions
-            self.f = F.relu
-            self.finv = lambda x: torch.log(x)
-            self.fderiv = lambda x: (x > 0).float()
-        elif activation == "lin":  # Linear activation functions
-            self.f = lambda x: x
-            self.finv = lambda x: x
-            self.fderiv = lambda x: torch.ones_like(x)
+        self.f = torch.sigmoid
+        self.finv = lambda x: torch.log(x / (1 - x))
+        self.fderiv = lambda x: x * (1 - x)
 
         self.w = []
 
@@ -53,7 +42,6 @@ class ROLANN(nn.Module):
         self.ug = []
         self.sg = []
 
-        self.sparse = sparse
 
         self.encrypted = encrypted
 
@@ -97,25 +85,15 @@ class ROLANN(nn.Module):
         # Derivative of the neural function
         derf = self.fderiv(f_d)
 
-        if self.sparse:
-            F_sparse = torch.diag(derf)
 
-            H = torch.matmul(xp, F_sparse)
+        # Diagonal matrix
+        F = torch.diag(derf)
 
-            U, S, _ = torch.linalg.svd(H, full_matrices=False)
+        H = torch.matmul(xp, F)
 
-            M = torch.matmul(
-                xp, torch.matmul(F_sparse, torch.matmul(F_sparse, f_d.T))
-            ).flatten()
-        else:
-            # Diagonal matrix
-            F = torch.diag(derf)
+        U, S, _ = torch.linalg.svd(H, full_matrices=False)
 
-            H = torch.matmul(xp, F)
-
-            U, S, _ = torch.linalg.svd(H, full_matrices=False)
-
-            M = torch.matmul(xp, torch.matmul(F, torch.matmul(F, f_d)))
+        M = torch.matmul(xp, torch.matmul(F, torch.matmul(F, f_d)))
 
         # encriptar M 
         if (self.encrypted):

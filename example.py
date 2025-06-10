@@ -24,7 +24,7 @@ from federated_rolann.federated.coordinator import Coordinador
 
 # 4) Preparar datasets sintéticos
 ds_full_train = FakeData(size=128, image_size=(3,224,224), num_classes=10, transform=ToTensor())
-ds_test       = FakeData(size=64,  image_size=(3,224,224), num_classes=10, transform=ToTensor())
+ds_test = FakeData(size=64,  image_size=(3,224,224), num_classes=10, transform=ToTensor())
 
 # 5) Particionar el train en dos partes iguales (un cliente cada una)
 ds1, ds2 = random_split(ds_full_train, [64, 64])
