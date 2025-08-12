@@ -11,8 +11,7 @@ import torch.nn.functional as F
 from torch import Tensor
 import torch.nn as nn
 
-
-# Libreria para cifrado homomorfico
+# Library for homomorphic encryption
 import tenseal as ts
 
 class ROLANN(nn.Module):
@@ -20,7 +19,7 @@ class ROLANN(nn.Module):
         self,
         num_classes: int,
         lamb: float = 0.01,
-        encrypted: bool = False, # Añadimos variable para cifrado
+        encrypted: bool = False, # Added variable for encryption
         context: ts.Context | None = None,
     ):
         super(ROLANN, self).__init__()
@@ -42,7 +41,6 @@ class ROLANN(nn.Module):
         self.ug = []
         self.sg = []
 
-
         self.encrypted = encrypted
 
         if self.encrypted:
@@ -51,10 +49,8 @@ class ROLANN(nn.Module):
                 self.context = context
             else:                              
                 raise ValueError(
-                    "Se necesita de un contexto para trabajar en modo encriptado. "
+                    "A context is required to work in encrypted mode. "
                 )
-
-
 
     def update_weights(self, X: Tensor, d: Tensor) -> Tensor:
         results = [self._update_weights(X, d[:, i]) for i in range(self.num_classes)]
@@ -64,7 +60,7 @@ class ROLANN(nn.Module):
         if self.encrypted:
             self.m = list(ml)
         else:
-            # en modo normal, apilamos como tensor
+            # in normal mode, stack as tensor
             self.m = torch.stack(ml, dim=0)
 
         self.u = torch.stack(ul, dim=0)
@@ -85,7 +81,6 @@ class ROLANN(nn.Module):
         # Derivative of the neural function
         derf = self.fderiv(f_d)
 
-
         # Diagonal matrix
         F = torch.diag(derf)
 
@@ -95,7 +90,7 @@ class ROLANN(nn.Module):
 
         M = torch.matmul(xp, torch.matmul(F, torch.matmul(F, f_d)))
 
-        # encriptar M 
+        # encrypt M 
         if (self.encrypted):
 
             m_plain = M.detach().cpu().numpy().tolist()
@@ -119,7 +114,7 @@ class ROLANN(nn.Module):
 
             w_tmp = self.w[i].permute(
                 *torch.arange(self.w[i].ndim - 1, -1, -1)
-            )  # Trasposing
+            )  # Transposing
 
             y_hat[i] = self.f(torch.matmul(w_tmp, xp))
 
@@ -162,11 +157,11 @@ class ROLANN(nn.Module):
         if not self.mg or not self.ug or not self.sg:
             return None
 
-        # solo en cliente: desencriptar mg y generar self.w una sola vez
+        # only on client: decrypt mg and generate self.w only once
         new_w = []
         for i in range(self.num_classes):
             M = self.mg[i]
-            # si es CKKSVector, lo desencriptamos
+            # if it is CKKSVector, decrypt it
             if hasattr(M, "decrypt"):
                 M = torch.tensor(M.decrypt(), device=self.ug[i].device, dtype=torch.float32)
             U = self.ug[i]
@@ -179,5 +174,3 @@ class ROLANN(nn.Module):
     def aggregate_update(self, X: Tensor, d: Tensor) -> None:
         self.update_weights(X, d)  # The new M and US are calculated
         self._aggregate_parcial()  # New M and US added to old (global) ones
-        
-

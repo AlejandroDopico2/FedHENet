@@ -1,17 +1,17 @@
 # rolann-federated
 
-**Versión:** 1.0.0  
-**Licencia:** MIT
+**Version:** 1.0.0  
+**License:** MIT
 
-Librería de aprendizaje federado que combina:
-- **ResNet18 preentrenada** (congelada) como extractor de características.  
-- **ROLANN** como clasificador.  
-- Cifrado homomórfico opcional vía CKKS (TenSEAL).  
-- Comunicación entre clientes y coordinador a través de MQTT.
+Federated learning library that combines:
+- **Pretrained ResNet18** (frozen) as feature extractor.  
+- **ROLANN** as classifier.  
+- Optional homomorphic encryption via CKKS (TenSEAL).  
+- Communication between clients and coordinator via MQTT.
 
 ---
 
-## Instalación
+## Installation
 
 ```bash
 git clone https://github.com/Ivanprdg/Libreria_federated_rolann.git
@@ -20,40 +20,54 @@ pip install -e .
 ```
 ---
 
-## Configuración
+## Configuration
 
-Todos los parámetros principales se pueden ajustar:
+All main parameters can be adjusted:
 
-| Parámetro         | Descripción                                         | Valor por defecto  |
+| Parameter         | Description                                         | Default value      |
 |-------------------|-----------------------------------------------------|--------------------|
-| `broker`          | Dirección del broker MQTT                           | `"localhost"`      |
-| `port`            | Puerto del broker MQTT                              | `1883`             |
-| `num_clients`     | Número de clientes a instanciar                     | `_`                |
-| `num_classes`     | Número de clases del dataset                        | `-`                |
-| `device`          | Dispositivo PyTorch (`"cpu"` o `"cuda"`)            | `"cpu"`            |
-| `encrypted`       | Activar cifrado homomórfico (True/False)            | `False`            |
+| `broker`          | MQTT broker address                                 | `"localhost"`      |
+| `port`            | MQTT broker port                                    | `1883`             |
+| `num_clients`     | Number of clients to instantiate                    | `_`                |
+| `num_classes`     | Number of classes in the dataset                    | `-`                |
+| `device`          | PyTorch device (`"cpu"` or `"cuda"`)                | `"cpu"`            |
+| `encrypted`       | Enable homomorphic encryption (True/False)          | `False`            |
 
-Además, los parámetros específicos de CKKS (TenSEAL) se crean en el propio script:
+Additionally, CKKS (TenSEAL) specific parameters are created in the script itself:
 
-- `poly_modulus_degree`: Tamaño del polinomio (p.ej. 8192).
-- `coeff_mod_bit_sizes`: Tamaño de coeficientes (p.ej. `[60]`).
-- `global_scale`: Escala global (p.ej. `2**40`).
+- `poly_modulus_degree`: Polynomial size (e.g. 8192).
+- `coeff_mod_bit_sizes`: Coefficient sizes (e.g. `[60]`).
+- `global_scale`: Global scale (e.g. `2**40`).
 
-Puedes modificar estos valores directamente en el bloque de creación de contexto.
+You can modify these values directly in the context creation block.
 
 ---
 
-## Ejemplo de uso
+## Usage example
 
-1. **Levanta un broker MQTT** (por ejemplo Mosquitto):
+1. **Start an MQTT broker** (for example Mosquitto):
 
-2. **Ejecuta el ejemplo** `example.py` (ya incluido en el paquete):
+2. **Run the included examples**:
+
    ```bash
    python example.py
+   python example_2.py
+   python example_3.py
+   python example_4.py
    ```
-   Este script:
-   - Crea un contexto CKKS con clave privada y pública.
-   - Instancia 1 coordinador y 2 clientes con cifrado.
-   - Realiza un entrenamiento local y envía las actualizaciones.
-   - El coordinador agrega automáticamente y publica el modelo global.
-   - Se imprime por pantalla la precisión final del modelo
+
+   - `example.py`: Federated learning with two clients and CKKS encryption, using synthetic data.
+   - `example_2.py`: Simple federated learning with two clients, no encryption, using synthetic data.
+   - `example_3.py`: Local (non-federated) training of ROLANN using synthetic data and ResNet feature extraction.
+   - `example_4.py`: Federated learning with three clients and CKKS encryption, using synthetic data.
+
+   Each script demonstrates a different usage scenario for the library, from local training to federated learning with and without encryption.
+
+---
+
+You may also want to:
+- **Modify the dataset or number of clients** in the examples to fit your use case.
+- **Adjust CKKS parameters** for different security/performance tradeoffs.
+- **Integrate your own data** by replacing the `FakeData` dataset with your own `torch.utils.data.Dataset`.
+
+---

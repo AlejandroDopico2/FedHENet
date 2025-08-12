@@ -1,16 +1,18 @@
+# Example: Federated learning with two clients and CKKS encryption, using synthetic data.
+
 import torch
 from torch.utils.data import DataLoader, random_split
 from torchvision.datasets import FakeData
 from torchvision.transforms import ToTensor
 
-# 1) Importar funciones de cifrado de la librería
+# 1) Import encryption functions from the library
 from federated_rolann.encrypted import (
     create_context,
     serialize_context,
     deserialize_context,
 )
 
-# 2) Crear contexto CKKS y serializar para coordinador y clientes
+# 2) Create CKKS context and serialize for coordinator and clients
 master_ctx = create_context()
 
 ctx_secret = serialize_context(master_ctx, secret_key=True)
@@ -18,19 +20,19 @@ ctx_public = serialize_context(master_ctx, secret_key=False)
 client_ctx = deserialize_context(ctx_secret)
 coord_ctx  = deserialize_context(ctx_public)
 
-# 3) Importar clases federadas
-from federated_rolann.federated.client import Cliente
-from federated_rolann.federated.coordinator import Coordinador
+# 3) Import federated classes
+from federated_rolann.federated.client import Client
+from federated_rolann.federated.coordinator import Coordinator
 
-# 4) Preparar datasets sintéticos
+# 4) Prepare synthetic datasets
 ds_full_train = FakeData(size=128, image_size=(3,224,224), num_classes=10, transform=ToTensor())
 ds_test = FakeData(size=64,  image_size=(3,224,224), num_classes=10, transform=ToTensor())
 
-# 5) Particionar el train en dos partes iguales (un cliente cada una)
+# 5) Split the train set into two equal parts (one client each)
 ds1, ds2 = random_split(ds_full_train, [64, 64])
 
-# 6) Instanciar coordinador y clientes (encrypted=True)
-coord = Coordinador(
+# 6) Instantiate coordinator and clients (encrypted=True)
+coord = Coordinator(
     num_classes=10,
     device="cpu",
     num_clients=2,
@@ -42,7 +44,7 @@ coord = Coordinador(
 
 clients = []
 for i, ds in enumerate((ds1, ds2)):
-    c = Cliente(
+    c = Client(
         num_classes=10,
         dataset=ds,
         device="cpu",
@@ -54,23 +56,23 @@ for i, ds in enumerate((ds1, ds2)):
     )
     clients.append(c)
 
-# 7) Entrenamiento local y envío de actualización
+# 7) Local training and sending update
 for c in clients:
-    c.training() # Entrena sobre su partición local
-    c.aggregate_parcial() # Envía M/US al coordinador
+    c.training() # Train on its local partition
+    c.aggregate_parcial() # Send M/US to the coordinator
 
-# El coordinador agregará y publicará automáticamente el modelo global.
+# The coordinator will automatically aggregate and publish the global model.
 
-# 8) Dar tiempo a que los clientes reciban el modelo global por MQTT
+# 8) Give time for clients to receive the global model via MQTT
 import time
 time.sleep(2)
 
-# 9) Evaluación sobre el conjunto completo
-print("---- Evaluación global ----")
+# 9) Evaluation on the full dataset
+print("---- Global evaluation ----")
 loader_train = DataLoader(ds_full_train, batch_size=32)
 loader_test  = DataLoader(ds_test, batch_size=32)
 
 for i, c in enumerate(clients):
     acc_train = c.evaluate(loader_train)
     acc_test  = c.evaluate(loader_test)
-    print(f"Cliente {i}: train acc = {acc_train:.2f}, test acc = {acc_test:.2f}")
+    print(f"Client {i}: train acc = {acc_train:.2f}, test acc = {acc_test:.2f}")

@@ -1,6 +1,6 @@
 __version__ = "1.0.0"
 
-from .federated.client import Cliente
-from .federated.coordinator import Coordinador
+from .federated.client import Client
+from .federated.coordinator import Coordinator
 
-__all__ = ["Cliente", "Coordinador"]
+__all__ = ["Client", "Coordinator"]
