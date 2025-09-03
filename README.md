@@ -15,8 +15,9 @@ Federated learning library that combines:
 
 ```bash
 git clone https://github.com/Ivanprdg/rolann-federated-lib.git
-cd rolann_federated
-pip install -e .
+cd rolann-federated-lib
+python -m pip install --upgrade pip setuptools wheel
+pip install .
 ```
 ---
 
