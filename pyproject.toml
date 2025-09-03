@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rolann_federated"
+name = "rolann-federated"
 version = "1.0.0"
 description = "Federated ROLANN library with homomorphic encryption and MQTT communication"
 requires-python = ">=3.8"

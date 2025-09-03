@@ -14,8 +14,8 @@ Federated learning library that combines:
 ## Installation
 
 ```bash
-git clone https://github.com/Ivanprdg/Libreria_federated_rolann.git
-cd rolann_federated
+git clone https://github.com/Ivanprdg/rolann-federated-lib.git
+cd rolann-federated
 pip install -e .
 ```
 ---
@@ -54,7 +54,7 @@ If you need full control (e.g., custom hyper-parameters, encryption context), yo
 - `num_classes` of the injected `ROLANN` must match the constructor’s `num_classes`.
 
 ```python
-from federated_rolann import ROLANN, Client, Coordinator
+from rolann_federated import ROLANN, Client, Coordinator
 import tenseal as ts
 
 # 1) (Optional) Create a CKKS context if you will encrypt M
