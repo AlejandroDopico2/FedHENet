@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "federated-rolann-lib"
 version = "1.0.0"
 description = "Federated ROLANN library with homomorphic encryption and MQTT communication"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
   "torch>=1.12",
   "torchvision>=0.13",
