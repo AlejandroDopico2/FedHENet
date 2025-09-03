@@ -15,13 +15,39 @@ from ..core import ROLANN
 
 class Coordinator:
 
-    def __init__(self, num_classes, device, num_clients: int, broker: str = "localhost", port: int = 1883, encrypted: bool = False, ctx: ts.Context | None = None):
-
-        # If encrypted=True but context contains secret key, fail:
-        if encrypted and ctx and ctx.has_secret_key():
-            raise ValueError("You passed a context with a private key to the coordinator")
+    def __init__(
+        self,
+        num_classes,
+        device,
+        num_clients: int,
+        broker: str = "localhost",
+        port: int = 1883,
+        encrypted: bool = False,
+        ctx: ts.Context | None = None,
+        rolann: ROLANN | None = None,
+    ):
         
-        self.rolann = ROLANN(num_classes=num_classes, encrypted=encrypted, context=ctx)
+        # --- Optional ROLANN injection ---
+        if rolann is not None:
+            # Ensure num_classes consistency
+            if hasattr(rolann, "num_classes") and rolann.num_classes != num_classes:
+                raise ValueError(
+                    f"Inconsistent num_classes: constructor={num_classes} vs rolann.num_classes={rolann.num_classes}"
+                )
+            # The coordinator must NOT hold a secret key if encryption is enabled
+            if getattr(rolann, "encrypted", False):
+                rctx = getattr(rolann, "context", None)
+                if rctx is not None and rctx.has_secret_key():
+                    raise ValueError(
+                        "Coordinator must not hold a secret key in the CKKS context"
+                    )
+            self.rolann = rolann
+        else:
+            # Default mode: create ROLANN instance using constructor flags
+            if encrypted and ctx and ctx.has_secret_key():
+                raise ValueError("You passed a context with a private key to the coordinator")
+            self.rolann = ROLANN(num_classes=num_classes, encrypted=encrypted, context=ctx)
+
         self.device = device
 
         self.M_global = []  # Global M matrix accumulated for each class

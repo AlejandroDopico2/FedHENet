@@ -43,6 +43,62 @@ You can modify these values directly in the context creation block.
 
 ---
 
+## Advanced: Injecting a custom `ROLANN` instance
+
+By default, the coordinator and clients build an internal `ROLANN` with sensible defaults.  
+If you need full control (e.g., custom hyper-parameters, encryption context), you can construct a `ROLANN` yourself and inject it into `Coordinator` and `Client`.
+
+**Prerequisites (when using CKKS encryption):**
+- The **coordinator** must have a **public** CKKS context (no secret key).
+- Each **client** must have a **private** CKKS context (with secret key).
+- `num_classes` of the injected `ROLANN` must match the constructor’s `num_classes`.
+
+```python
+from federated_rolann import ROLANN, Client, Coordinator
+import tenseal as ts
+
+# 1) (Optional) Create a CKKS context if you will encrypt M
+ctx = ts.context(
+    ts.SCHEME_TYPE.CKKS,
+    poly_modulus_degree=8192,
+    coeff_mod_bit_sizes=[60, 40, 40, 60],
+)
+ctx.generate_galois_keys()
+ctx.generate_relin_keys()
+ctx.global_scale = 2**40
+
+# 2) Derive contexts for coordinator (public) and clients (private)
+ctx_bytes = ctx.serialize(save_secret_key=True)
+ctx_coord = ts.context_from(ctx_bytes)
+ctx_coord.make_context_public()  # coordinator must NOT hold the secret key
+ctx_client = ctx                  # client keeps the secret key
+
+# 3) Build your own ROLANN objects (you can pass any custom options your ROLANN supports)
+rolann_coord = ROLANN(num_classes=10, encrypted=True, context=ctx_coord)
+rolann_client = ROLANN(num_classes=10, encrypted=True, context=ctx_client)
+
+# 4) Inject them into Coordinator / Client
+coord = Coordinator(
+    num_classes=10,
+    device="cuda",
+    num_clients=4,
+    broker="localhost",
+    port=1883,
+    rolann=rolann_coord,   # ← injected model
+)
+
+cli = Client(
+    num_classes=10,
+    dataset=train_loader,  # your Dataset/DataLoader
+    device="cuda",
+    client_id=1,
+    broker="localhost",
+    port=1883,
+    rolann=rolann_client,  # ← injected model
+)
+```
+---
+
 ## Usage example
 
 1. **Start an MQTT broker** (for example Mosquitto):

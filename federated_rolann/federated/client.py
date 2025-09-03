@@ -15,15 +15,43 @@ from ..core import ROLANN
 import tenseal as ts
 
 class Client:
-    def __init__(self, num_classes, dataset, device, client_id: int, broker: str = "localhost", port: int = 1883, encrypted: bool = False, ctx: ts.Context | None = None):
+    def __init__(
+        self,
+        num_classes,
+        dataset,
+        device,
+        client_id: int,
+        broker: str = "localhost",
+        port: int = 1883,
+        encrypted: bool = False,
+        ctx: ts.Context | None = None,
+        rolann: ROLANN | None = None,
+    ):
 
-        # If encrypted=True but context does NOT have a secret key, fail:
-        if encrypted and (ctx is None or not ctx.has_secret_key()):
-            raise ValueError("For the client, context must include a private key")
-        
-        self.device = device # Device (CPU or GPU) where the client will run
-        self.rolann = ROLANN(num_classes=num_classes, encrypted=encrypted, context=ctx) # Instance of the ROLANN class
-        self.loader = DataLoader(dataset, batch_size=128, shuffle=True) # Local dataset
+
+        self.device = device  # Device (CPU or GPU) where the client will run
+
+        # --- Optional ROLANN injection ---
+        if rolann is not None:
+            # Ensure num_classes consistency
+            if hasattr(rolann, "num_classes") and rolann.num_classes != num_classes:
+                raise ValueError(f"Inconsistent num_classes: constructor={num_classes} vs rolann.num_classes={rolann.num_classes}")
+            
+            # If the injected ROLANN is encrypted, the client MUST have the secret key
+            if getattr(rolann, "encrypted", False):
+                rctx = getattr(rolann, "context", None)
+                if rctx is None or not rctx.has_secret_key():
+                    raise ValueError("Client must hold a secret key in the CKKS context when encrypted=True")
+
+            self.rolann = rolann
+        else:
+            # Default behavior: create ROLANN instance with constructor flags
+            if encrypted and (ctx is None or not ctx.has_secret_key()):
+                raise ValueError("For the client, context must include a private key")
+            self.rolann = ROLANN(num_classes=num_classes, encrypted=encrypted, context=ctx)
+
+        self.loader = DataLoader(dataset, batch_size=128, shuffle=True)  # Local dataset
+
 
         # Each client creates its own pretrained and frozen ResNet
         self.resnet = resnet18(weights=ResNet18_Weights.DEFAULT) # Own resnet
@@ -61,7 +89,7 @@ class Client:
                 features = self.resnet(x)  # Extract local features
 
             # Convert labels to one-hot to match the number of classes
-            label = (torch.nn.functional.one_hot(y, num_classes=10) * 0.9 + 0.05).to(self.device)
+            label = (torch.nn.functional.one_hot(y, num_classes=self.rolann.num_classes) * 0.9 + 0.05).to(self.device)
             self.rolann.aggregate_update(features, label)
 
         # Move resnet to cpu
