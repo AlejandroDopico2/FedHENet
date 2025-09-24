@@ -12,6 +12,7 @@ import paho.mqtt.client as mqtt
 
 import tenseal as ts
 from ..core import ROLANN
+from ..transport import MQTTTransport
 
 class Coordinator:
 
@@ -64,12 +65,10 @@ class Coordinator:
         self.resnet.to(self.device)
         self.resnet.eval()
 
-        # MQTT configuration
-        self.mqtt = mqtt.Client(client_id="coordinator", callback_api_version=CallbackAPIVersion.VERSION1)
-        self.mqtt.message_callback_add("federated/client/+/update", self._on_client_update)  # Callback to receive client models
-        self.mqtt.connect(broker, port)  # Connect to MQTT broker
-        self.mqtt.subscribe("federated/client/+/update", qos=1)  # Subscribe to client model topic
-        self.mqtt.loop_start()  # Start message loop
+        # MQTT transport
+        self.mqtt = MQTTTransport(client_id="coordinator", broker=broker, port=port)
+        self.mqtt.subscribe("federated/client/+/update", self._on_client_update)
+        self.mqtt.loop_start()
 
         self.num_clients = num_clients  # Number of clients
         self._pending = []  # List to store pending results from clients
