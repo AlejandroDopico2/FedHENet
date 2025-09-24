@@ -29,15 +29,10 @@ datasets = prepare_splits(
     root="~/data",
     num_clients=3,
     split="iid",
-    alpha=0.3,
     subsample_fraction=0.1,
     seed=42,
     train=True,
 )
-
-print(len(datasets))
-print([len(c) for c in datasets])
-print(sum([len(c) for c in datasets]))
 
 # 6) Instantiate coordinator and clients (encrypted=True)
 coord = Coordinator(

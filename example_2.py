@@ -6,17 +6,23 @@ from torchvision.transforms import ToTensor
 
 from federated_rolann.federated.client import Client
 from federated_rolann.federated.coordinator import Coordinator
+from federated_rolann.datasets import prepare_splits
 
-# 1) Prepare synthetic datasets
-ds_full_train = FakeData(size=64, image_size=(3, 32, 32), num_classes=5, transform=ToTensor())
-ds_test = FakeData(size=32, image_size=(3, 32, 32), num_classes=5, transform=ToTensor())
+# 4) Prepare synthetic datasets
+datasets = prepare_splits(
+    name="cifar10",
+    root="~/data",
+    num_clients=3,
+    split="iid",
+    subsample_fraction=0.1,
+    seed=42,
+    train=True,
+)
 
-# 2) Split the training dataset into two parts
-ds1, ds2 = random_split(ds_full_train, [32, 32])
 
 # 3) Instantiate coordinator and clients (without encryption)
 coord = Coordinator(
-    num_classes=5,
+    num_classes=10,
     device="cpu",
     num_clients=2,
     encrypted=False,
@@ -26,9 +32,9 @@ coord = Coordinator(
 )
 
 clients = []
-for i, ds in enumerate((ds1, ds2)):
+for i, ds in enumerate(datasets):
     c = Client(
-        num_classes=5,
+        num_classes=10,
         dataset=ds,
         device="cpu",
         client_id=i,
@@ -49,8 +55,8 @@ time.sleep(2)
 
 # 5) Evaluation
 print("---- Global evaluation ----")
-loader_train = DataLoader(ds_full_train, batch_size=16)
-loader_test = DataLoader(ds_test, batch_size=16)
+loader_train = DataLoader(datasets[0], batch_size=32)
+loader_test  = DataLoader(datasets[1], batch_size=32)
 
 for i, c in enumerate(clients):
     acc_train = c.evaluate(loader_train)

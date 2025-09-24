@@ -26,10 +26,11 @@ class Client:
         encrypted: bool = False,
         ctx: ts.Context | None = None,
         rolann: ROLANN | None = None,
+        extractor: nn.Module | None = None,
     ):
 
 
-        self.device = device  # Device (CPU or GPU) where the client will run
+        self.device = device
 
         # --- Optional ROLANN injection ---
         if rolann is not None:
@@ -53,15 +54,15 @@ class Client:
         self.loader = DataLoader(dataset, batch_size=128, shuffle=True)  # Local dataset
 
 
-        # Each client creates its own pretrained and frozen ResNet
-        self.resnet = resnet18(weights=ResNet18_Weights.DEFAULT) # Own resnet
-        self.resnet.fc = nn.Identity()  # Replace the final layer to extract features
-
-        for param in self.resnet.parameters():
-            param.requires_grad = False  # Freeze the ResNet
-
-        self.resnet.to(self.device) # Move ResNet to device
-        self.resnet.eval()
+        # Feature extractor (default: pretrained frozen ResNet18)
+        if extractor is None:
+            extractor = resnet18(weights=ResNet18_Weights.DEFAULT)
+            extractor.fc = nn.Identity()
+            for p in extractor.parameters():
+                p.requires_grad = False
+        self.extractor = extractor
+        self.extractor.to(self.device)
+        self.extractor.eval()
         self.rolann.to(self.device)  # Ensure ROLANN is on the same device
 
         # MQTT configuration 
@@ -79,21 +80,21 @@ class Client:
         Iterate over the local dataset, extract features using the local ResNet and
         update the ROLANN layer
         """
-        self.resnet.to(self.device) # Move to training and move to cpu after training
+        self.extractor.to(self.device)
 
         for x, y in tqdm(self.loader):
 
             x = x.to(self.device)
 
             with torch.no_grad():
-                features = self.resnet(x)  # Extract local features
+                features = self.extractor(x)
 
             # Convert labels to one-hot to match the number of classes
             label = (torch.nn.functional.one_hot(y, num_classes=self.rolann.num_classes) * 0.9 + 0.05).to(self.device)
             self.rolann.aggregate_update(features, label)
 
-        # Move resnet to cpu
-        self.resnet.to("cpu")
+        # Move extractor to cpu
+        self.extractor.to("cpu")
 
     def aggregate_parcial(self):
         """
@@ -171,17 +172,17 @@ class Client:
         correct = 0
         total = 0
 
-        self.resnet.to(self.device)
+        self.extractor.to(self.device)
         self.rolann.to(self.device)
 
         with torch.no_grad():
             for x, y in loader:
 
-                x = x.to(self.device) # Move data to GPU
-                y = y.to(self.device) # Move labels to GPU
+                x = x.to(self.device)
+                y = y.to(self.device)
 
-                caracterisiticas = self.resnet(x) # Get features from ResNet18
-                preds = self.rolann(caracterisiticas) # Get predictions from ROLANN
+                caracterisiticas = self.extractor(x)
+                preds = self.rolann(caracterisiticas)
 
                 correct += (preds.argmax(dim=1) == y).sum().item()
                 total += y.size(0)
