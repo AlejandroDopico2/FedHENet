@@ -7,8 +7,8 @@ from torchvision.models import resnet18, ResNet18_Weights
 import json
 import pickle
 import base64
+from paho.mqtt.enums import CallbackAPIVersion
 import paho.mqtt.client as mqtt
-from paho.mqtt.client import CallbackAPIVersion
 
 import tenseal as ts
 from ..core import ROLANN
@@ -78,27 +78,32 @@ class Coordinator:
     def _on_client_update(self, client, userdata, msg):
 
         data = json.loads(msg.payload)  # Deserialize received message
+        # Accept both new envelope and old raw list
+        items = data.get("payload") if isinstance(data, dict) and "payload" in data else data
+        msg_format = data.get("format") if isinstance(data, dict) else None
         M_list, US_list = [], []
 
-        for i in data:  # Iterate over each client's data
+        for i in items:  # Iterate over each client's data
 
             m_bytes = base64.b64decode(i["M"])  # Deserialize M matrix    
 
-            if self.rolann.encrypted:
+            # Prefer explicit metadata if present, otherwise fall back to previous heuristics
+            if msg_format == "ckks":
+                M_enc = ts.ckks_vector_from(self.rolann.context, m_bytes)
+                M_list.append(M_enc)
+            elif msg_format == "tensor" or not self.rolann.encrypted:
+                arr = pickle.loads(m_bytes)
+                tensor = torch.from_numpy(np.array(arr, dtype=np.float32)).to(self.device)
+                M_list.append(tensor)
+            else:
+                # backward-compat: attempt CKKS first then pickle
                 try:
-                    # Rebuild encrypted vector without pickle
                     M_enc = ts.ckks_vector_from(self.rolann.context, m_bytes)
                     M_list.append(M_enc)
                 except Exception:
-                    # Not a CKKS ciphertext: use pickle.loads
                     arr = pickle.loads(m_bytes)
                     tensor = torch.from_numpy(np.array(arr, dtype=np.float32)).to(self.device)
                     M_list.append(tensor)
-            else:
-                # If not encrypted, deserialize M matrix using pickle
-                arr = pickle.loads(m_bytes)
-                tensor = torch.from_numpy(np.array(arr, dtype=np.float32)).to(self.device)
-                M_list.append(tensor) 
 
             # Deserialize US
             US_np = pickle.loads(base64.b64decode(i["US"]))
@@ -113,7 +118,7 @@ class Coordinator:
             self._pending.clear()  # Clear pending list
 
             # Serialize and publish global model
-            body = []
+            payload = []
             for M_global, U_global, S_global in zip(self.M_global, self.U_global, self.S_global):
 
                 US_np = (U_global @ torch.diag(S_global)).cpu().numpy()  # Reconstruct US matrix
@@ -127,13 +132,18 @@ class Coordinator:
                     # tensor –> numpy + pickle
                     m_bytes = pickle.dumps(M_global.cpu().numpy())
 
-                # Save global model in body
-                body.append({
+                payload.append({
                     "M": base64.b64encode(m_bytes).decode(),
                     "US": base64.b64encode(us_bytes).decode(),
                 })
 
-            self.mqtt.publish("federated/global_model", json.dumps(body), qos=1)  # Publish global model
+            envelope = {
+                "version": 1,
+                "format": "ckks" if hasattr(self.M_global[0], "serialize") else "tensor",
+                "num_classes": len(self.M_global),
+                "payload": payload,
+            }
+            self.mqtt.publish("federated/global_model", json.dumps(envelope), qos=1)
 
     def partial_collect(self, M_list, US_list):
         """
@@ -154,7 +164,7 @@ class Coordinator:
                 US_rest = [item[c] for item in US_list[1:]]
             else:
                 M = self.M_global[c]
-                US = self.U_global[c] @ np.diag(self.S_global[c])
+                US = self.U_global[c] @ torch.diag(self.S_global[c])
                 M_rest  = [item[c] for item in M_list[:]]
                 US_rest = [item[c] for item in US_list[:]]
 

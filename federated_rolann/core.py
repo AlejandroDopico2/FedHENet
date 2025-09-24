@@ -52,7 +52,7 @@ class ROLANN(nn.Module):
                     "A context is required to work in encrypted mode. "
                 )
 
-    def update_weights(self, X: Tensor, d: Tensor) -> Tensor:
+    def update_weights(self, X: Tensor, d: Tensor) -> None:
         results = [self._update_weights(X, d[:, i]) for i in range(self.num_classes)]
 
         ml, ul, sl = zip(*results)
@@ -66,7 +66,7 @@ class ROLANN(nn.Module):
         self.u = torch.stack(ul, dim=0)
         self.s = torch.stack(sl, dim=0)
 
-    def _update_weights(self, X: Tensor, d: Tensor) -> Tensor:
+    def _update_weights(self, X: Tensor, d: Tensor) -> tuple:
         X = X.T
         n = X.size(1)  # Number of data points (n)
 
@@ -75,7 +75,7 @@ class ROLANN(nn.Module):
 
         xp = torch.cat((ones, X), dim=0)
 
-        # Inverse of the neural function
+        # Inverse of the neural function (logit of target probabilities)
         f_d = self.finv(d)
 
         # Derivative of the neural function

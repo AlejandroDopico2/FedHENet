@@ -104,34 +104,41 @@ class Client:
         local_US = [torch.matmul(self.rolann.ug[i], torch.diag(self.rolann.sg[i].clone().detach())) for i in range(self.rolann.num_classes)]
 
 
-        # Serialize and publish the update
-        body = [] # Create a body for the message
-
-        for M_enc, US in zip(local_M, local_US): # Iterate over the accumulated matrices
-
-            # If CKKSVector, serialize, otherwise convert to list
+        # Serialize and publish the update with metadata envelope
+        payload = []
+        for M_enc, US in zip(local_M, local_US):
             if hasattr(M_enc, "serialize"):
                 serialized = M_enc.serialize()
                 bM = base64.b64encode(serialized).decode()
+                m_format = "ckks"
             else:
-                # tensor
                 m_plain = M_enc.cpu().numpy().tolist()
                 bM = base64.b64encode(pickle.dumps(m_plain)).decode()
+                m_format = "tensor"
 
-            # Serialize US and add to body
-            bUS = base64.b64encode(pickle.dumps(US.cpu().numpy())).decode() # bUS is the serialized US matrix, i.e., the US matrix in bytes
-            body.append({"M": bM, "US": bUS}) # Add to the body the dictionary with M and US matrices
+            bUS = base64.b64encode(pickle.dumps(US.cpu().numpy())).decode()
+            payload.append({"M": bM, "US": bUS})
 
-        topic = f"federated/client/{self.client_id}/update" # Create the topic for the client
-        self.mqtt.publish(topic, json.dumps(body), qos=1) # Publish the message to the topic
+        envelope = {
+            "version": 1,
+            "format": m_format,  # format of M entries
+            "client_id": self.client_id,
+            "num_classes": self.rolann.num_classes,
+            "payload": payload,
+        }
+
+        topic = f"federated/client/{self.client_id}/update"
+        self.mqtt.publish(topic, json.dumps(envelope), qos=1)
 
 
     # Receives the global model and decomposes it into M and US matrices
     def _on_global_model(self, client, userdata, msg):
 
-        data = json.loads(msg.payload) # Deserialize the received message
+        data = json.loads(msg.payload)
+        # Accept both envelope with payload and raw list for backward compatibility
+        items = data.get("payload") if isinstance(data, dict) and "payload" in data else data
         mg, ug, sg = [], [], []
-        for i in data: # Iterate over the received data
+        for i in items:
 
             m_bytes = base64.b64decode(i["M"])
 
@@ -143,7 +150,7 @@ class Client:
                 arr = pickle.loads(m_bytes)
                 mg.append(torch.from_numpy(np.array(arr, dtype=np.float32)).to(self.device))
 
-            US_np = pickle.loads(base64.b64decode(i["US"])) # Deserialize the US matrix
+            US_np = pickle.loads(base64.b64decode(i["US"]))
 
             # Decompose US into U and S
             U, S, _ = torch.linalg.svd(
