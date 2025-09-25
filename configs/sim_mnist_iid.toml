@@ -1,0 +1,28 @@
+[dataset]
+name = "mnist"
+root = "./data"
+split = "iid"
+alpha = 0.5
+num_clients = 2
+subsample_fraction = 0.1
+train = true
+
+[extractor]
+type = "resnet18"
+weights = "default"
+
+[coordinator]
+num_classes = 10
+device = "cpu"
+num_clients = 2
+broker = "localhost"
+port = 1883
+encrypted = false
+
+[client]
+device = "cpu"
+batch_size = 128
+encrypted = false
+broker = "localhost"
+port = 1883
+

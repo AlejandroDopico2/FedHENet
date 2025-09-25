@@ -15,5 +15,11 @@ dependencies = [
   "tqdm>=4.0.0"
 ]
 license = { text = "MIT" }
-authors = [{ name="Iván Pérez Digón"}]
+authors = [
+  { name ="Alejandro Dopico-Castro", email = "alejandro.dopico2@udc.es"},
+  { name="Iván Pérez Digón"},
+]
 readme = "README.md"
+
+[project.scripts]
+fedhenet = "federated_rolann.cli:main"

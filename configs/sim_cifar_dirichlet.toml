@@ -1,0 +1,28 @@
+[dataset]
+name = "cifar10"
+root = "./data"
+split = "dirichlet"
+alpha = 0.3
+num_clients = 3
+subsample_fraction = 0.1
+train = true
+
+[extractor]
+type = "resnet18"
+weights = "default"
+
+[coordinator]
+num_classes = 10
+device = "cuda"
+num_clients = 3
+broker = "localhost"
+port = 1883
+encrypted = true
+
+[client]
+device = "cuda"
+batch_size = 128
+encrypted = true
+broker = "localhost"
+port = 1883
+

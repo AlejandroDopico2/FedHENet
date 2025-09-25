@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 # Python 3.11+: stdlib tomllib. For 3.10, try tomli if available.
@@ -16,7 +16,7 @@ except Exception:  # pragma: no cover
 
 @dataclass
 class DatasetConfig:
-    name: str = "cifar10"  # cifar10|mnist|fake
+    name: str = "cifar10"
     root: str = "./data"
     split: str = "iid"  # iid|dirichlet
     alpha: float = 0.5
@@ -54,10 +54,10 @@ class ClientConfig:
 
 @dataclass
 class Config:
-    dataset: DatasetConfig = DatasetConfig()
-    extractor: ExtractorConfig = ExtractorConfig()
-    coordinator: CoordinatorConfig = CoordinatorConfig()
-    client: ClientConfig = ClientConfig()
+    dataset: DatasetConfig = field(default_factory=DatasetConfig)
+    extractor: ExtractorConfig = field(default_factory=ExtractorConfig)
+    coordinator: CoordinatorConfig = field(default_factory=CoordinatorConfig)
+    client: ClientConfig = field(default_factory=ClientConfig)
 
 
 def _parse_toml(path: str) -> dict:
