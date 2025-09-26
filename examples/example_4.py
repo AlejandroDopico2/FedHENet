@@ -4,13 +4,13 @@ from torch.utils.data import DataLoader, random_split
 from torchvision.datasets import FakeData
 from torchvision.transforms import ToTensor
 
-from federated_rolann.encrypted import (
+from fedhenet.encrypted import (
     create_context,
     serialize_context,
     deserialize_context,
 )
-from federated_rolann.federated.client import Client
-from federated_rolann.federated.coordinator import Coordinator
+from fedhenet.federated.client import Client
+from fedhenet.federated.coordinator import Coordinator
 
 # Create CKKS context
 master_ctx = create_context(poly_modulus_degree=8192, coeff_mod_bit_sizes=[40, 20, 40])

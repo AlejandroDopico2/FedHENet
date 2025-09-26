@@ -3,16 +3,17 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "federated-rolann-lib"
-version = "1.0.0"
-description = "Federated ROLANN library with homomorphic encryption and MQTT communication"
+name = "fedhenet"
+version = "0.1"
+description = "FedHEONN library with homomorphic encryption and MQTT communication"
 requires-python = ">=3.10"
 dependencies = [
   "torch>=1.12",
   "torchvision>=0.13",
   "paho-mqtt>=1.6.1",
   "tenseal>=0.3.0",
-  "tqdm>=4.0.0"
+  "tqdm>=4.0.0",
+  "loguru>=0.7.0"
 ]
 license = { text = "MIT" }
 authors = [
@@ -22,4 +23,7 @@ authors = [
 readme = "README.md"
 
 [project.scripts]
-fedhenet = "federated_rolann.cli:main"
+fedhenet = "fedhenet.cli:main"
+
+[tool.setuptools]
+packages = {find = {include = ["fedhenet*"], exclude = ["configs*", "data*"]}}

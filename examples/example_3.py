@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision.datasets import FakeData
 from torchvision.transforms import ToTensor
-from federated_rolann.core import ROLANN
+from fedhenet.core import ROLANN
 from torchvision.models import resnet18, ResNet18_Weights
 
 # Synthetic dataset

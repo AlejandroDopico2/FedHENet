@@ -4,9 +4,9 @@ from torch.utils.data import DataLoader, random_split
 from torchvision.datasets import FakeData
 from torchvision.transforms import ToTensor
 
-from federated_rolann.federated.client import Client
-from federated_rolann.federated.coordinator import Coordinator
-from federated_rolann.datasets import prepare_splits
+from fedhenet.federated.client import Client
+from fedhenet.federated.coordinator import Coordinator
+from fedhenet.datasets import prepare_splits
 
 # 4) Prepare synthetic datasets
 datasets = prepare_splits(

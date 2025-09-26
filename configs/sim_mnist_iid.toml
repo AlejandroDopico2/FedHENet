@@ -6,23 +6,25 @@ alpha = 0.5
 num_clients = 2
 subsample_fraction = 0.1
 train = true
-
 [extractor]
 type = "resnet18"
 weights = "default"
 
 [coordinator]
 num_classes = 10
-device = "cpu"
-num_clients = 2
-broker = "localhost"
-port = 1883
-encrypted = false
+device = "cuda"
+num_clients = 3
 
 [client]
-device = "cpu"
+device = "cuda"
 batch_size = 128
+encrypted = false
+
+[communication]
 encrypted = false
 broker = "localhost"
 port = 1883
 
+[logging]
+enable_wandb = true
+enable_codecarbon = true

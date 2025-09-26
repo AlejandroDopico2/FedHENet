@@ -6,7 +6,7 @@ from torchvision.datasets import FakeData
 from torchvision.transforms import ToTensor
 
 # 1) Import encryption functions from the library
-from federated_rolann.encrypted import (
+from fedhenet.encrypted import (
     create_context,
     serialize_context,
     deserialize_context,
@@ -21,8 +21,8 @@ client_ctx = deserialize_context(ctx_secret)
 coord_ctx  = deserialize_context(ctx_public)
 
 # 3) Import federated classes
-from federated_rolann.federated.client import Client
-from federated_rolann.federated.coordinator import Coordinator
+from fedhenet.federated.client import Client
+from fedhenet.federated.coordinator import Coordinator
 
 # 4) Prepare synthetic datasets
 ds_full_train = FakeData(size=128, image_size=(3,224,224), num_classes=10, transform=ToTensor())
