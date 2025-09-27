@@ -7,12 +7,11 @@ Created on Tue Jul 16 10:11:21 2024
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch import Tensor
-import torch.nn as nn
 
 # Library for homomorphic encryption
 import tenseal as ts
+
 
 class ROLANN(nn.Module):
     def __init__(
@@ -42,12 +41,9 @@ class ROLANN(nn.Module):
         self.encrypted = encrypted
 
         if self.encrypted:
-
             if context is None:
-                raise ValueError(
-                    "A context is required to work in encrypted mode. "
-                )
-            
+                raise ValueError("A context is required to work in encrypted mode. ")
+
             self.context = context
 
     def update_weights(self, X: Tensor, d: Tensor) -> None:
@@ -88,9 +84,8 @@ class ROLANN(nn.Module):
 
         M = torch.matmul(xp, torch.matmul(F, torch.matmul(F, f_d)))
 
-        # encrypt M 
-        if (self.encrypted):
-
+        # encrypt M
+        if self.encrypted:
             m_plain = M.detach().cpu().numpy().tolist()
             M = ts.ckks_vector(self.context, m_plain)
 
@@ -109,7 +104,6 @@ class ROLANN(nn.Module):
         y_hat = torch.empty((n_outputs, n), device=X.device)
 
         for i in range(n_outputs):
-
             w_tmp = self.w[i].permute(
                 *torch.arange(self.w[i].ndim - 1, -1, -1)
             )  # Transposing
@@ -151,7 +145,6 @@ class ROLANN(nn.Module):
     def _calculate_weights(
         self,
     ) -> None:
-        
         if not self.mg or not self.ug or not self.sg:
             return None
 
@@ -161,10 +154,12 @@ class ROLANN(nn.Module):
             M = self.mg[i]
             # if it is CKKSVector, decrypt it
             if hasattr(M, "decrypt"):
-                M = torch.tensor(M.decrypt(), device=self.ug[i].device, dtype=torch.float32)
+                M = torch.tensor(
+                    M.decrypt(), device=self.ug[i].device, dtype=torch.float32
+                )
             U = self.ug[i]
             S = self.sg[i]
-            diag = torch.diag(1/(S*S))
+            diag = torch.diag(1 / (S * S))
             w_i = U @ (diag @ (U.T @ M))
             new_w.append(w_i)
         self.w = new_w

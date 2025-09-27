@@ -1,5 +1,4 @@
 # Example: Federated learning with three clients and CKKS encryption, using synthetic data.
-import torch
 from torch.utils.data import DataLoader, random_split
 from torchvision.datasets import FakeData
 from torchvision.transforms import ToTensor
@@ -20,7 +19,9 @@ client_ctx = deserialize_context(ctx_secret)
 coord_ctx = deserialize_context(ctx_public)
 
 # Synthetic dataset
-ds_full_train = FakeData(size=90, image_size=(3, 16, 16), num_classes=4, transform=ToTensor())
+ds_full_train = FakeData(
+    size=90, image_size=(3, 16, 16), num_classes=4, transform=ToTensor()
+)
 ds_test = FakeData(size=30, image_size=(3, 16, 16), num_classes=4, transform=ToTensor())
 ds1, ds2, ds3 = random_split(ds_full_train, [30, 30, 30])
 
@@ -54,6 +55,7 @@ for c in clients:
     c.aggregate_parcial()
 
 import time
+
 time.sleep(2)
 
 print("---- Global evaluation ----")

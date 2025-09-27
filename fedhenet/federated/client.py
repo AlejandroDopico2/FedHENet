@@ -16,6 +16,7 @@ import tenseal as ts
 from loguru import logger
 import threading
 
+
 class Client:
     def __init__(
         self,
@@ -30,7 +31,6 @@ class Client:
         rolann: ROLANN | None = None,
         extractor: nn.Module | None = None,
     ):
-
         self.device = device
 
         if encrypted and (ctx is None or not ctx.has_secret_key()):
@@ -38,7 +38,6 @@ class Client:
         self.rolann = ROLANN(num_classes=num_classes, encrypted=encrypted, context=ctx)
 
         self.loader = DataLoader(dataset, batch_size=128, shuffle=True)  # Local dataset
-
 
         # Feature extractor (default: pretrained frozen ResNet18)
         if extractor is None:
@@ -52,17 +51,24 @@ class Client:
         self.extractor.eval()
         self.rolann.to("cpu")
 
-        # MQTT configuration 
-        self.mqtt = mqtt.Client(client_id=f"client_{client_id}", callback_api_version=CallbackAPIVersion.VERSION1) # mqtt for each client
-        self.mqtt.message_callback_add("federated/global_model", self._on_global_model) # callback to receive the global model
-        self.mqtt.connect(broker, port) # Connect to the MQTT broker
+        # MQTT configuration
+        self.mqtt = mqtt.Client(
+            client_id=f"client_{client_id}",
+            callback_api_version=CallbackAPIVersion.VERSION1,
+        )  # mqtt for each client
+        self.mqtt.message_callback_add(
+            "federated/global_model", self._on_global_model
+        )  # callback to receive the global model
+        self.mqtt.connect(broker, port)  # Connect to the MQTT broker
         # Subscribe with qos=1 to get retained last message if coordinator already published
-        self.mqtt.subscribe("federated/global_model", qos=1) # Subscribe to the global model topic
-        self.mqtt.loop_start() # Start the message loop
+        self.mqtt.subscribe(
+            "federated/global_model", qos=1
+        )  # Subscribe to the global model topic
+        self.mqtt.loop_start()  # Start the message loop
 
         self.client_id = client_id  # Client ID
         self._global_model_ready = threading.Event()
-    
+
     def training(self):
         """
         Iterate over the local dataset, extract features using the local ResNet and
@@ -72,14 +78,17 @@ class Client:
         self.rolann.to(self.device)
 
         for x, y in self.loader:
-
             x = x.to(self.device)
 
             with torch.no_grad():
                 features = self.extractor(x)
 
             # Convert labels to one-hot to match the number of classes
-            label = (torch.nn.functional.one_hot(y, num_classes=self.rolann.num_classes) * 0.9 + 0.05).to(self.device)
+            label = (
+                torch.nn.functional.one_hot(y, num_classes=self.rolann.num_classes)
+                * 0.9
+                + 0.05
+            ).to(self.device)
             self.rolann.aggregate_update(features, label)
 
             # No per-batch progress logging here; the CLI handles a single tqdm over clients
@@ -96,8 +105,12 @@ class Client:
         """
         # Return the accumulated matrices M and US for each class
         local_M = self.rolann.mg
-        local_US = [torch.matmul(self.rolann.ug[i], torch.diag(self.rolann.sg[i].clone().detach())) for i in range(self.rolann.num_classes)]
-
+        local_US = [
+            torch.matmul(
+                self.rolann.ug[i], torch.diag(self.rolann.sg[i].clone().detach())
+            )
+            for i in range(self.rolann.num_classes)
+        ]
 
         # Serialize and publish the update with metadata envelope
         payload = []
@@ -132,16 +145,17 @@ class Client:
         except Exception:
             pass
 
-
     # Receives the global model and decomposes it into M and US matrices
     def _on_global_model(self, client, userdata, msg):
-
         data = json.loads(msg.payload)
         # Accept both envelope with payload and raw list for backward compatibility
-        items = data.get("payload") if isinstance(data, dict) and "payload" in data else data
+        items = (
+            data.get("payload")
+            if isinstance(data, dict) and "payload" in data
+            else data
+        )
         mg, ug, sg = [], [], []
         for i in items:
-
             m_bytes = base64.b64decode(i["M"])
 
             # if CKKS ciphertext, reconstruct, otherwise pickle
@@ -150,24 +164,25 @@ class Client:
                 mg.append(M_enc)
             except Exception:
                 arr = pickle.loads(m_bytes)
-                mg.append(torch.from_numpy(np.array(arr, dtype=np.float32)).to(self.device))
+                mg.append(
+                    torch.from_numpy(np.array(arr, dtype=np.float32)).to(self.device)
+                )
 
             US_np = pickle.loads(base64.b64decode(i["US"]))
 
             # Decompose US into U and S
             U, S, _ = torch.linalg.svd(
                 torch.from_numpy(US_np).to(self.device), full_matrices=False
-            ) 
+            )
             ug.append(U)
             sg.append(S)
 
-        # Update the accumulated matrices of ROLANN    
+        # Update the accumulated matrices of ROLANN
         self.rolann.mg = mg
         self.rolann.ug = ug
         self.rolann.sg = sg
         self.rolann._calculate_weights()
         self._global_model_ready.set()
-
 
     def evaluate(self, loader):
         correct = 0
@@ -177,9 +192,11 @@ class Client:
         self.rolann.to(self.device)
 
         # Guard: no weights computed yet
-        w_list = getattr(self.rolann, 'w', None)
+        w_list = getattr(self.rolann, "w", None)
         if not isinstance(w_list, list) or len(w_list) == 0:
-            logger.warning(f"Client {self.client_id}: no weights available; skipping evaluation")
+            logger.warning(
+                f"Client {self.client_id}: no weights available; skipping evaluation"
+            )
             return 0.0
 
         with torch.no_grad():
@@ -190,7 +207,9 @@ class Client:
                 features = self.extractor(x)
                 preds = self.rolann(features)
                 if preds.shape[-1] == 0:
-                    logger.error(f"Client {self.client_id}: preds has zero classes. w_len={len(w_list)}; num_classes={getattr(self.rolann,'num_classes',None)}")
+                    logger.error(
+                        f"Client {self.client_id}: preds has zero classes. w_len={len(w_list)}; num_classes={getattr(self.rolann, 'num_classes', None)}"
+                    )
                     # Free memory before returning
                     self.extractor.to("cpu")
                     self.rolann.to("cpu")
@@ -206,7 +225,7 @@ class Client:
         self.rolann.to("cpu")
         if self.device == "cuda" and torch.cuda.is_available():
             torch.cuda.empty_cache()
-        
+
         return correct / max(1, total)
 
     # Synchronization helpers

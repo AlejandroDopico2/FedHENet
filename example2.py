@@ -1,8 +1,5 @@
 # Example: Simple federated learning with two clients, no encryption, using synthetic data.
-import torch
-from torch.utils.data import DataLoader, random_split
-from torchvision.datasets import FakeData
-from torchvision.transforms import ToTensor
+from torch.utils.data import DataLoader
 
 from fedhenet.federated.client import Client
 from fedhenet.federated.coordinator import Coordinator
@@ -51,12 +48,13 @@ for c in clients:
     c.aggregate_parcial()
 
 import time
+
 time.sleep(2)
 
 # 5) Evaluation
 print("---- Global evaluation ----")
 loader_train = DataLoader(datasets[0], batch_size=32)
-loader_test  = DataLoader(datasets[1], batch_size=32)
+loader_test = DataLoader(datasets[1], batch_size=32)
 
 for i, c in enumerate(clients):
     acc_train = c.evaluate(loader_train)

@@ -27,3 +27,8 @@ fedhenet = "fedhenet.cli:main"
 
 [tool.setuptools]
 packages = {find = {include = ["fedhenet*"], exclude = ["configs*", "data*"]}}
+
+[dependency-groups]
+dev = [
+    "ruff>=0.13.2",
+]

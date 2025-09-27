@@ -1,6 +1,6 @@
 import math
 import random
-from typing import List, Sequence, Tuple, Optional
+from typing import List, Optional
 
 import torch
 from torch.utils.data import Subset
@@ -154,7 +154,9 @@ def prepare_splits(
     """
     Convenience: load dataset and return client Subsets per requested split.
     """
-    ds = load_dataset(name=name, root=root, train=train, download=True, transform=transform)
+    ds = load_dataset(
+        name=name, root=root, train=train, download=True, transform=transform
+    )
     if subsample_fraction is not None and subsample_fraction < 1.0:
         ds = subsample_dataset(ds, subsample_fraction, seed=seed)
 
@@ -173,5 +175,3 @@ __all__ = [
     "split_dirichlet",
     "prepare_splits",
 ]
-
-

@@ -43,11 +43,13 @@ class ClientConfig:
     device: str = "cpu"
     batch_size: int = 128
 
+
 @dataclass
 class CommunicationConfig:
     encrypted: bool = False
     broker: str = "localhost"
     port: int = 1883
+
 
 @dataclass
 class LoggingConfig:
@@ -74,9 +76,11 @@ def _parse_toml(path: str) -> dict:
     with open(path, "rb") as f:
         if tomllib is not None:
             return tomllib.load(f)  # type: ignore
-        if '_tomli' in globals() and globals()['_tomli'] is not None:
-            return globals()['_tomli'].load(f)  # type: ignore
-        raise RuntimeError("No TOML parser available. Use Python 3.11+ or install tomli.")
+        if "_tomli" in globals() and globals()["_tomli"] is not None:
+            return globals()["_tomli"].load(f)  # type: ignore
+        raise RuntimeError(
+            "No TOML parser available. Use Python 3.11+ or install tomli."
+        )
 
 
 def load_config(path: str) -> Config:
@@ -113,5 +117,3 @@ __all__ = [
     "Config",
     "load_config",
 ]
-
-

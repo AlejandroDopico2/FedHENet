@@ -7,7 +7,9 @@ from fedhenet.core import ROLANN
 from torchvision.models import resnet18, ResNet18_Weights
 
 # Synthetic dataset
-ds_train = FakeData(size=32, image_size=(3, 32, 32), num_classes=3, transform=ToTensor())
+ds_train = FakeData(
+    size=32, image_size=(3, 32, 32), num_classes=3, transform=ToTensor()
+)
 ds_test = FakeData(size=16, image_size=(3, 32, 32), num_classes=3, transform=ToTensor())
 
 loader_train = DataLoader(ds_train, batch_size=8)
@@ -25,8 +27,9 @@ rolann.eval()
 for x, y in loader_train:
     with torch.no_grad():
         features = resnet(x)
-    label = (torch.nn.functional.one_hot(y, num_classes=3) * 0.9 + 0.05)
+    label = torch.nn.functional.one_hot(y, num_classes=3) * 0.9 + 0.05
     rolann.aggregate_update(features, label)
+
 
 # Evaluation
 def evaluate(model, resnet, loader):
@@ -39,6 +42,7 @@ def evaluate(model, resnet, loader):
             correct += (preds.argmax(dim=1) == y).sum().item()
             total += y.size(0)
     return correct / total
+
 
 print("Acc train:", evaluate(rolann, resnet, loader_train))
 print("Acc test:", evaluate(rolann, resnet, loader_test))

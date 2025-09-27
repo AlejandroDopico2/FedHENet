@@ -16,7 +16,7 @@ from .federated.coordinator import Coordinator
 from .encrypted import create_context, serialize_context, deserialize_context
 from .metrics import MetricsRecorder
 
-os.environ['CODECARBON_LOG_LEVEL'] = 'WARNING'
+os.environ["CODECARBON_LOG_LEVEL"] = "WARNING"
 logging.getLogger("codecarbon").setLevel(logging.WARNING)
 
 logger.remove()
@@ -29,8 +29,8 @@ logger.add(
     "<cyan>{line}</cyan> - <level>{message}</level>",
 )
 
-def run_experiment(config_path: str) -> None:
 
+def run_experiment(config_path: str) -> None:
     logger.info(f"Loading config from {config_path}")
     cfg = load_config(config_path)
 
@@ -40,6 +40,7 @@ def run_experiment(config_path: str) -> None:
     if getattr(cfg, "logging", None) and cfg.logging.enable_wandb:
         try:
             import wandb  # type: ignore
+
             run_ts = time.strftime("%Y%m%d_%H%M")
             exp_name = (
                 f"{cfg.dataset.name}-"
@@ -51,7 +52,9 @@ def run_experiment(config_path: str) -> None:
             exp_cfg = {
                 "dataset.name": cfg.dataset.name,
                 "dataset.split": cfg.dataset.split,
-                "dataset.alpha": cfg.dataset.alpha if cfg.dataset.split == "dirichlet" else None,
+                "dataset.alpha": cfg.dataset.alpha
+                if cfg.dataset.split == "dirichlet"
+                else None,
                 "dataset.num_clients": cfg.dataset.num_clients,
                 "extractor.type": cfg.extractor.type,
                 "num_classes": cfg.coordinator.num_classes,
@@ -75,6 +78,7 @@ def run_experiment(config_path: str) -> None:
     if getattr(cfg, "logging", None) and cfg.logging.enable_codecarbon:
         try:
             from codecarbon import EmissionsTracker  # type: ignore
+
             codecarbon_tracker = EmissionsTracker(log_level="error")
             codecarbon_tracker.start()
         except Exception as e:
@@ -97,7 +101,10 @@ def run_experiment(config_path: str) -> None:
         train=cfg.dataset.train,
         subsample_fraction=cfg.dataset.subsample_fraction,
     )
-    logger.info("Datasets prepared for clients: " + ", ".join(str(len(d)) for d in client_datasets))
+    logger.info(
+        "Datasets prepared for clients: "
+        + ", ".join(str(len(d)) for d in client_datasets)
+    )
 
     # Devices with fallback if CUDA not available
     coord_device = cfg.coordinator.device
@@ -128,7 +135,7 @@ def run_experiment(config_path: str) -> None:
         port=cfg.communication.port,
     )
 
-    logger.info(f"Initializing clients")
+    logger.info("Initializing clients")
     clients: List[Client] = []
     for i, ds in enumerate(client_datasets):
         client = Client(
@@ -155,13 +162,19 @@ def run_experiment(config_path: str) -> None:
     logger.info("Waiting for global model broadcast")
     ready_count = 0
     for c in clients:
-        if hasattr(c, 'wait_for_global_model') and c.wait_for_global_model(timeout_s=30.0):
+        if hasattr(c, "wait_for_global_model") and c.wait_for_global_model(
+            timeout_s=30.0
+        ):
             ready_count += 1
     if ready_count < len(clients):
-        logger.warning(f"Only {ready_count}/{len(clients)} clients received the global model in time")
+        logger.warning(
+            f"Only {ready_count}/{len(clients)} clients received the global model in time"
+        )
 
     # Evaluate on a single held-out test dataset (no partitioning)
-    test_ds = load_dataset(name=cfg.dataset.name, root=cfg.dataset.root, train=False, download=True)
+    test_ds = load_dataset(
+        name=cfg.dataset.name, root=cfg.dataset.root, train=False, download=True
+    )
     loader = DataLoader(test_ds, batch_size=32)
 
     acc = clients[0].evaluate(loader)
@@ -178,12 +191,15 @@ def run_experiment(config_path: str) -> None:
     if wandb_run is not None:
         try:
             import wandb  # type: ignore
-            wandb.log({
-                "accuracy": acc,
-                "elapsed_seconds": snapshot["elapsed_seconds"],
-                "mqtt_published_bytes": snapshot["published_bytes"],
-                "mqtt_received_bytes": snapshot["received_bytes"],
-            })
+
+            wandb.log(
+                {
+                    "accuracy": acc,
+                    "elapsed_seconds": snapshot["elapsed_seconds"],
+                    "mqtt_published_bytes": snapshot["published_bytes"],
+                    "mqtt_received_bytes": snapshot["received_bytes"],
+                }
+            )
         except Exception as e:
             logger.warning(f"W&B log error: {e}")
 
@@ -193,10 +209,13 @@ def run_experiment(config_path: str) -> None:
             emissions = codecarbon_tracker.final_emissions_data
             if emissions is not None and wandb_run is not None:
                 import wandb  # type: ignore
-                wandb.log({
-                    "codecarbon_emissions_kg": emissions.emissions,
-                    "codecarbon_energy_kwh": emissions.energy_consumed
-                })
+
+                wandb.log(
+                    {
+                        "codecarbon_emissions_kg": emissions.emissions,
+                        "codecarbon_energy_kwh": emissions.energy_consumed,
+                    }
+                )
             if emissions is not None:
                 logger.info(
                     f"Energy: {emissions.energy_consumed:.6f} kWh, Emissions: {emissions.emissions:.6f} kgCO2"
@@ -213,7 +232,7 @@ def run_experiment(config_path: str) -> None:
     # Graceful shutdown of MQTT clients to avoid core dumps
     try:
         for c in clients:
-            if hasattr(c, 'shutdown'):
+            if hasattr(c, "shutdown"):
                 c.shutdown()
     except Exception:
         pass
@@ -223,7 +242,9 @@ def main():
     parser = argparse.ArgumentParser(prog="fedhenet", description="FedHeNet CLI")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sim = sub.add_parser("simulate", help="Run single-machine simulation from a TOML config")
+    sim = sub.add_parser(
+        "simulate", help="Run single-machine simulation from a TOML config"
+    )
     sim.add_argument("--config", required=True, help="Path to TOML config file")
 
     args = parser.parse_args()
@@ -234,5 +255,3 @@ def main():
 simulate_from_config = run_experiment
 
 __all__ = ["main", "run_experiment", "simulate_from_config"]
-
-

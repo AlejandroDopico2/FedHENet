@@ -7,16 +7,14 @@ from torchvision.models import resnet18, ResNet18_Weights
 import json
 import pickle
 import base64
-from paho.mqtt.enums import CallbackAPIVersion
-import paho.mqtt.client as mqtt
 
 import tenseal as ts
 from ..core import ROLANN
 from ..transport import MQTTTransport
 from ..metrics import MetricsRecorder
 
-class Coordinator:
 
+class Coordinator:
     def __init__(
         self,
         num_classes,
@@ -27,9 +25,10 @@ class Coordinator:
         encrypted: bool = False,
         ctx: ts.Context | None = None,
     ):
-        
         if encrypted and ctx and ctx.has_secret_key():
-            raise ValueError("You passed a context with a private key to the coordinator")
+            raise ValueError(
+                "You passed a context with a private key to the coordinator"
+            )
         self.rolann = ROLANN(num_classes=num_classes, encrypted=encrypted, context=ctx)
 
         self.device = device
@@ -58,18 +57,20 @@ class Coordinator:
 
     # Function to receive results from clients
     def _on_client_update(self, client, userdata, msg):
-
         raw = msg.payload
         MetricsRecorder.instance().add_received_bytes(len(raw))
         data = json.loads(raw)  # Deserialize received message
         # Accept both new envelope and old raw list
-        items = data.get("payload") if isinstance(data, dict) and "payload" in data else data
+        items = (
+            data.get("payload")
+            if isinstance(data, dict) and "payload" in data
+            else data
+        )
         msg_format = data.get("format") if isinstance(data, dict) else None
         M_list, US_list = [], []
 
         for i in items:  # Iterate over each client's data
-
-            m_bytes = base64.b64decode(i["M"])  # Deserialize M matrix    
+            m_bytes = base64.b64decode(i["M"])  # Deserialize M matrix
 
             # Prefer explicit metadata if present, otherwise fall back to previous heuristics
             if msg_format == "ckks":
@@ -77,7 +78,9 @@ class Coordinator:
                 M_list.append(M_enc)
             elif msg_format == "tensor" or not self.rolann.encrypted:
                 arr = pickle.loads(m_bytes)
-                tensor = torch.from_numpy(np.array(arr, dtype=np.float32)).to(self.device)
+                tensor = torch.from_numpy(np.array(arr, dtype=np.float32)).to(
+                    self.device
+                )
                 M_list.append(tensor)
             else:
                 # backward-compat: attempt CKKS first then pickle
@@ -86,7 +89,9 @@ class Coordinator:
                     M_list.append(M_enc)
                 except Exception:
                     arr = pickle.loads(m_bytes)
-                    tensor = torch.from_numpy(np.array(arr, dtype=np.float32)).to(self.device)
+                    tensor = torch.from_numpy(np.array(arr, dtype=np.float32)).to(
+                        self.device
+                    )
                     M_list.append(tensor)
 
             # Deserialize US
@@ -95,17 +100,21 @@ class Coordinator:
 
         self._pending.append((M_list, US_list))  # Store pending results
 
-        if len(self._pending) == self.num_clients:  # If all client results have been received
-            
+        if (
+            len(self._pending) == self.num_clients
+        ):  # If all client results have been received
             Ms, USs = zip(*self._pending)  # Unpack pending results
             self.partial_collect(list(Ms), list(USs))  # Aggregate results
             self._pending.clear()  # Clear pending list
 
             # Serialize and publish global model
             payload = []
-            for M_global, U_global, S_global in zip(self.M_global, self.U_global, self.S_global):
-
-                US_np = (U_global @ torch.diag(S_global)).cpu().numpy()  # Reconstruct US matrix
+            for M_global, U_global, S_global in zip(
+                self.M_global, self.U_global, self.S_global
+            ):
+                US_np = (
+                    (U_global @ torch.diag(S_global)).cpu().numpy()
+                )  # Reconstruct US matrix
                 us_bytes = pickle.dumps(US_np)  # Get US matrix as bytes
 
                 # M_global can be CKKSVector or tensor
@@ -116,14 +125,18 @@ class Coordinator:
                     # tensor –> numpy + pickle
                     m_bytes = pickle.dumps(M_global.cpu().numpy())
 
-                payload.append({
-                    "M": base64.b64encode(m_bytes).decode(),
-                    "US": base64.b64encode(us_bytes).decode(),
-                })
+                payload.append(
+                    {
+                        "M": base64.b64encode(m_bytes).decode(),
+                        "US": base64.b64encode(us_bytes).decode(),
+                    }
+                )
 
             envelope = {
                 "version": 1,
-                "format": "ckks" if hasattr(self.M_global[0], "serialize") else "tensor",
+                "format": "ckks"
+                if hasattr(self.M_global[0], "serialize")
+                else "tensor",
                 "num_classes": len(self.M_global),
                 "payload": payload,
             }
@@ -140,26 +153,24 @@ class Coordinator:
         nclasses = len(M_list[0])
         init = False
 
-        # For each class, aggregate the results from each client    
+        # For each class, aggregate the results from each client
         for c in range(0, nclasses):
-
-            if (not self.M_global) or init:            
+            if (not self.M_global) or init:
                 init = True
-                M  = M_list[0][c]
+                M = M_list[0][c]
                 US = US_list[0][c]
-                M_rest  = [item[c] for item in M_list[1:]]
+                M_rest = [item[c] for item in M_list[1:]]
                 US_rest = [item[c] for item in US_list[1:]]
             else:
                 M = self.M_global[c]
                 US = self.U_global[c] @ torch.diag(self.S_global[c])
-                M_rest  = [item[c] for item in M_list[:]]
+                M_rest = [item[c] for item in M_list[:]]
                 US_rest = [item[c] for item in US_list[:]]
 
             # Aggregate M and US
             for M_k, US_k in zip(M_rest, US_rest):
-
                 M = M + M_k
-                
+
                 # Convert both to tensors on the correct device
                 if not isinstance(US_k, torch.Tensor):
                     US_k = torch.from_numpy(US_k).to(self.device)
@@ -195,17 +206,28 @@ class Coordinator:
     def update_global(self, mg_list, ug_list, sg_list):
         """
         Updates the global ROLANN model with the calculated global matrices.
-        """ 
+        """
 
-        if self.rolann.encrypted:       
-            self.rolann.mg = mg_list # Not tensor, is ckks vector 
+        if self.rolann.encrypted:
+            self.rolann.mg = mg_list  # Not tensor, is ckks vector
         else:
-            mg_tensor_list = [m if isinstance(m, torch.Tensor) else torch.from_numpy(m).to(self.device) for m in mg_list]
+            mg_tensor_list = [
+                m
+                if isinstance(m, torch.Tensor)
+                else torch.from_numpy(m).to(self.device)
+                for m in mg_list
+            ]
             self.rolann.mg = mg_tensor_list
 
-        ug_tensor_list = [u if isinstance(u, torch.Tensor) else torch.from_numpy(u).to(self.device) for u in ug_list]
-        sg_tensor_list = [s if isinstance(s, torch.Tensor) else torch.from_numpy(s).to(self.device) for s in sg_list]
-        
+        ug_tensor_list = [
+            u if isinstance(u, torch.Tensor) else torch.from_numpy(u).to(self.device)
+            for u in ug_list
+        ]
+        sg_tensor_list = [
+            s if isinstance(s, torch.Tensor) else torch.from_numpy(s).to(self.device)
+            for s in sg_list
+        ]
+
         # Assign lists directly to the global model
         self.rolann.ug = ug_tensor_list
         self.rolann.sg = sg_tensor_list
