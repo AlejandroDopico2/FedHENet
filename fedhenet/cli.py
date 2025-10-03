@@ -3,8 +3,9 @@ import time
 from typing import List
 import os
 import logging
-
+import numpy as np
 import torch
+
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from loguru import logger
@@ -30,135 +31,153 @@ logger.add(
 )
 
 
-def run_experiment(config_path: str) -> None:
-    logger.info(f"Loading config from {config_path}")
-    cfg = load_config(config_path)
+class ExperimentRunner:
+    def __init__(self, config_path: str):
+        """Initialize the experiment runner with configuration and setup logging, trackers, and metrics."""
+        logger.info(f"Loading config from {config_path}")
+        self.cfg = load_config(config_path)
 
-    # Optional external loggers
-    wandb_run = None
-    codecarbon_tracker = None
-    if getattr(cfg, "logging", None) and cfg.logging.enable_wandb:
-        try:
-            import wandb  # type: ignore
+        # TODO: Later config overrides could be merged here (e.g., CLI args)
 
-            run_ts = time.strftime("%Y%m%d_%H%M")
-            exp_name = (
-                f"fedhenet-{cfg.dataset.name}-"
-                f"{cfg.dataset.split}{'-alpha' if cfg.dataset.split == 'dirichlet' else ''}-"
-                f"nc{cfg.dataset.num_clients}-"
-                f"enc{int(bool(cfg.communication.encrypted))}-"
-                f"{run_ts}"
-            )
-            exp_cfg = {
-                "dataset.name": cfg.dataset.name,
-                "dataset.split": cfg.dataset.split,
-                "dataset.alpha": (
-                    cfg.dataset.alpha if cfg.dataset.split == "dirichlet" else None
-                ),
-                "dataset.num_clients": cfg.dataset.num_clients,
-                "extractor.type": cfg.extractor.type,
-                "num_classes": cfg.coordinator.num_classes,
-                "coordinator.device": cfg.coordinator.device,
-                "client.device": cfg.client.device,
-                "client.batch_size": cfg.client.batch_size,
-                "communication.encrypted": cfg.communication.encrypted,
-                "communication.broker": cfg.communication.broker,
-                "communication.port": cfg.communication.port,
-            }
-            wandb_run = wandb.init(
-                project=cfg.logging.wandb_project or "fedhenet",
-                name=exp_name,
-                tags=cfg.logging.wandb_tags,
-                config=exp_cfg,
-                reinit=True,
-            )
-        except Exception as e:
-            logger.warning(f"W&B disabled due to import/init error: {e}")
+        # Optional external loggers
+        self.wandb_run = None
+        self.codecarbon_tracker = None
+        if getattr(self.cfg, "logging", None) and self.cfg.logging.enable_wandb:
+            try:
+                import wandb  # type: ignore
 
-    if getattr(cfg, "logging", None) and cfg.logging.enable_codecarbon:
-        try:
-            from codecarbon import EmissionsTracker  # type: ignore
+                run_ts = time.strftime("%Y%m%d_%H%M")
+                exp_name = (
+                    f"fedhenet-{self.cfg.dataset.name}-"
+                    f"{self.cfg.dataset.split}{'-alpha' if self.cfg.dataset.split == 'dirichlet' else ''}-"
+                    f"nc{self.cfg.dataset.num_clients}-"
+                    f"enc{int(bool(self.cfg.communication.encrypted))}-"
+                    f"{run_ts}"
+                )
+                exp_cfg = {
+                    "dataset.name": self.cfg.dataset.name,
+                    "dataset.split": self.cfg.dataset.split,
+                    "dataset.alpha": (
+                        self.cfg.dataset.alpha
+                        if self.cfg.dataset.split == "dirichlet"
+                        else None
+                    ),
+                    "dataset.num_clients": self.cfg.dataset.num_clients,
+                    "extractor.type": self.cfg.extractor.type,
+                    "num_classes": self.cfg.coordinator.num_classes,
+                    "coordinator.device": self.cfg.coordinator.device,
+                    "client.device": self.cfg.client.device,
+                    "client.batch_size": self.cfg.client.batch_size,
+                    "communication.encrypted": self.cfg.communication.encrypted,
+                    "communication.broker": self.cfg.communication.broker,
+                    "communication.port": self.cfg.communication.port,
+                }
+                self.wandb_run = wandb.init(
+                    project=self.cfg.logging.wandb_project or "fedhenet",
+                    name=exp_name,
+                    tags=self.cfg.logging.wandb_tags,
+                    config=exp_cfg,
+                    reinit=True,
+                )
+            except Exception as e:
+                logger.warning(f"W&B disabled due to import/init error: {e}")
 
-            codecarbon_tracker = EmissionsTracker(log_level="error")
-            codecarbon_tracker.start()
-        except Exception as e:
-            logger.warning(f"CodeCarbon disabled due to import/init error: {e}")
+        if getattr(self.cfg, "logging", None) and self.cfg.logging.enable_codecarbon:
+            try:
+                from codecarbon import EmissionsTracker  # type: ignore
 
-    # Metrics recorder
-    metrics = MetricsRecorder.instance()
-    metrics.start()
+                self.codecarbon_tracker = EmissionsTracker(log_level="error")
+                self.codecarbon_tracker.start()
+            except Exception as e:
+                logger.warning(f"CodeCarbon disabled due to import/init error: {e}")
 
-    # Dataset splits per client
-    logger.info(
-        f"Preparing dataset: name={cfg.dataset.name}, split={cfg.dataset.split}, clients={cfg.dataset.num_clients}, subsample={cfg.dataset.subsample_fraction}"
-    )
-    client_datasets = prepare_splits(
-        name=cfg.dataset.name,
-        root=cfg.dataset.root,
-        num_clients=cfg.dataset.num_clients,
-        split=cfg.dataset.split,
-        alpha=cfg.dataset.alpha,
-        subsample_fraction=cfg.dataset.subsample_fraction,
-    )
-    logger.info(
-        "Datasets prepared for clients: "
-        + ", ".join(str(len(d)) for d in client_datasets)
-    )
+        # Metrics recorder
+        self.metrics = MetricsRecorder.instance()
 
-    # Devices with fallback if CUDA not available
-    coord_device = cfg.coordinator.device
-    client_device = cfg.client.device
-    if client_device.lower() == "cuda" and not torch.cuda.is_available():
-        logger.info("CUDA not available; falling back client device to CPU")
-        client_device = "cpu"
+        # Initialize instance variables
+        self.client_datasets = None
+        self.coord = None
+        self.clients = None
 
-    # Encryption contexts: build one master context and split into public/secret
-    coord_ctx = None
-    client_ctx = None
-    if cfg.communication.encrypted:
-        logger.info("Creating TenSEAL CKKS contexts")
-        master_ctx = create_context()
-        ctx_secret = serialize_context(master_ctx, secret_key=True)
-        ctx_public = serialize_context(master_ctx, secret_key=False)
-        client_ctx = deserialize_context(ctx_secret)
-        coord_ctx = deserialize_context(ctx_public)
-
-    logger.info("Starting coordinator")
-    coord = Coordinator(
-        num_classes=cfg.coordinator.num_classes,
-        device=coord_device,
-        num_clients=cfg.dataset.num_clients,
-        encrypted=cfg.communication.encrypted,
-        ctx=coord_ctx,
-        broker=cfg.communication.broker,
-        port=cfg.communication.port,
-    )
-
-    logger.info("Initializing clients")
-    clients: List[Client] = []
-    for i, ds in enumerate(client_datasets):
-        client = Client(
-            num_classes=cfg.coordinator.num_classes,
-            dataset=ds,
-            device=client_device,
-            client_id=i,
-            encrypted=cfg.communication.encrypted,
-            ctx=client_ctx,
-            broker=cfg.communication.broker,
-            port=cfg.communication.port,
+    def prepare_datasets(self):
+        """Handle dataset splitting."""
+        # Dataset splits per client
+        logger.info(
+            f"Preparing dataset: name={self.cfg.dataset.name}, split={self.cfg.dataset.split}, clients={self.cfg.dataset.num_clients}, subsample={self.cfg.dataset.subsample_fraction}"
         )
-        clients.append(client)
+        self.client_datasets = prepare_splits(
+            name=self.cfg.dataset.name,
+            root=self.cfg.dataset.root,
+            num_clients=self.cfg.dataset.num_clients,
+            split=self.cfg.dataset.split,
+            alpha=self.cfg.dataset.alpha,
+            subsample_fraction=self.cfg.dataset.subsample_fraction,
+        )
+        logger.info(
+            "Datasets prepared for clients: "
+            + ", ".join(str(len(d)) for d in self.client_datasets)
+        )
 
-    # Local training and send updates
-    try:
+    def init_clients(self):
+        """Initialize coordinator and clients."""
+        # Devices with fallback if CUDA not available
+        coord_device = self.cfg.coordinator.device
+        client_device = self.cfg.client.device
+        if client_device.lower() == "cuda" and not torch.cuda.is_available():
+            logger.info("CUDA not available; falling back client device to CPU")
+            client_device = "cpu"
+
+        # Encryption contexts: build one master context and split into public/secret
+        coord_ctx = None
+        client_ctx = None
+        if self.cfg.communication.encrypted:
+            logger.info("Creating TenSEAL CKKS contexts")
+            master_ctx = create_context()
+            ctx_secret = serialize_context(master_ctx, secret_key=True)
+            ctx_public = serialize_context(master_ctx, secret_key=False)
+            client_ctx = deserialize_context(ctx_secret)
+            coord_ctx = deserialize_context(ctx_public)
+
+        logger.info("Starting coordinator")
+        self.coord = Coordinator(
+            num_classes=self.cfg.coordinator.num_classes,
+            device=coord_device,
+            num_clients=self.cfg.dataset.num_clients,
+            encrypted=self.cfg.communication.encrypted,
+            ctx=coord_ctx,
+            broker=self.cfg.communication.broker,
+            port=self.cfg.communication.port,
+        )
+
+        logger.info("Initializing clients")
+        self.clients = []
+        for i, ds in enumerate(self.client_datasets):
+            client = Client(
+                num_classes=self.cfg.coordinator.num_classes,
+                dataset=ds,
+                device=client_device,
+                client_id=i,
+                encrypted=self.cfg.communication.encrypted,
+                ctx=client_ctx,
+                broker=self.cfg.communication.broker,
+                port=self.cfg.communication.port,
+            )
+            self.clients.append(client)
+
+    def train_and_evaluate(self) -> List[float]:
+        """Run local training, aggregation, and evaluation."""
+        # Local training and send updates
         logger.info("Starting local training across clients")
 
         test_ds = load_dataset(
-            name=cfg.dataset.name, root=cfg.dataset.root, train=False, download=True
+            name=self.cfg.dataset.name,
+            root=self.cfg.dataset.root,
+            train=False,
+            download=True,
         )
         loader = DataLoader(test_ds, batch_size=32)
 
-        for c in tqdm(clients, desc="Clients", leave=True):
+        for c in tqdm(self.clients, desc="Clients", leave=True):
             c.training()
             acc = c.evaluate(loader)
             c.aggregate_parcial()
@@ -166,90 +185,138 @@ def run_experiment(config_path: str) -> None:
 
         logger.info("Waiting for global model broadcast")
         ready_count = 0
-        for c in clients:
+        for c in self.clients:
             if hasattr(c, "wait_for_global_model") and c.wait_for_global_model(
                 timeout_s=30.0
             ):
                 ready_count += 1
-        if ready_count < len(clients):
+        if ready_count < len(self.clients):
             logger.warning(
-                f"Only {ready_count}/{len(clients)} clients received the global model in time"
+                f"Only {ready_count}/{len(self.clients)} clients received the global model in time"
             )
 
         # Evaluate on a single held-out test dataset (no partitioning)
         test_ds = load_dataset(
-            name=cfg.dataset.name, root=cfg.dataset.root, train=False, download=True
+            name=self.cfg.dataset.name,
+            root=self.cfg.dataset.root,
+            train=False,
+            download=True,
         )
         loader = DataLoader(test_ds, batch_size=32)
 
-        for c in clients:
+        accuracies = []
+        for c in self.clients:
             acc = c.evaluate(loader)
-            logger.info(f"Client {c.client_id} test acc = {acc:.2f}")
-    finally:
+            accuracies.append(acc)
+        return accuracies
+
+    def _safe_shutdown(self):
+        """Safely shutdown coordinator and clients with error handling."""
         try:
-            coord.shutdown()
+            if self.coord is not None:
+                self.coord.shutdown()
         except Exception:
             pass
         try:
-            for c in clients:
-                c.shutdown()
+            if self.clients is not None:
+                for c in self.clients:
+                    c.shutdown()
         except Exception:
             pass
 
-    metrics.end()
+    def finalize(self, accuracies: List[float]):
+        """Shut down coordinator, clients, trackers, and log metrics."""
+        self._safe_shutdown()
 
-    # Log to external systems
-    snapshot = metrics.snapshot()
-    logger.info(
-        f"Run stats: time={snapshot['elapsed_seconds']:.2f}s, pub={snapshot['published_bytes']} bytes, recv={snapshot['received_bytes']} bytes"
-    )
-    if wandb_run is not None:
-        try:
-            import wandb  # type: ignore
+        self.metrics.end()
 
-            wandb.log(
-                {
-                    "accuracy": acc,
-                    "elapsed_seconds": snapshot["elapsed_seconds"],
-                    "mqtt_published_bytes": snapshot["published_bytes"],
-                    "mqtt_received_bytes": snapshot["received_bytes"],
-                }
-            )
-        except Exception as e:
-            logger.warning(f"W&B log error: {e}")
-
-    if codecarbon_tracker is not None:
-        try:
-            emissions = codecarbon_tracker.stop()
-            emissions = codecarbon_tracker.final_emissions_data
-            if emissions is not None and wandb_run is not None:
+        # Log to external systems
+        snapshot = self.metrics.snapshot()
+        logger.info(
+            f"Run stats: time={snapshot['elapsed_seconds']:.2f}s, pub={snapshot['published_bytes']} bytes, recv={snapshot['received_bytes']} bytes"
+        )
+        if self.wandb_run is not None:
+            try:
                 import wandb  # type: ignore
+
+                mean_accuracy = np.mean(accuracies)
+                std_accuracy = np.std(accuracies)
 
                 wandb.log(
                     {
-                        "codecarbon_emissions_kg": emissions.emissions,
-                        "codecarbon_energy_kwh": emissions.energy_consumed,
+                        "accuracy": mean_accuracy,
+                        "accuracy_std": std_accuracy,
+                        "elapsed_seconds": snapshot["elapsed_seconds"],
+                        "mqtt_published_bytes": snapshot["published_bytes"],
+                        "mqtt_received_bytes": snapshot["received_bytes"],
                     }
                 )
-            if emissions is not None:
-                logger.info(
-                    f"Energy: {emissions.energy_consumed:.6f} kWh, Emissions: {emissions.emissions:.6f} kgCO2"
-                )
-        except Exception as e:
-            logger.warning(f"CodeCarbon stop error: {e}")
+            except Exception as e:
+                logger.warning(f"W&B log error: {e}")
 
-    if wandb_run is not None:
+        if self.codecarbon_tracker is not None:
+            try:
+                emissions = self.codecarbon_tracker.stop()
+                emissions = self.codecarbon_tracker.final_emissions_data
+                if emissions is not None and self.wandb_run is not None:
+                    import wandb  # type: ignore
+
+                    wandb.log(
+                        {
+                            "codecarbon_emissions_kg": emissions.emissions,
+                            "codecarbon_energy_kwh": emissions.energy_consumed,
+                        }
+                    )
+                if emissions is not None:
+                    logger.info(
+                        f"Energy: {emissions.energy_consumed:.6f} kWh, Emissions: {emissions.emissions:.6f} kgCO2"
+                    )
+            except Exception as e:
+                logger.warning(f"CodeCarbon stop error: {e}")
+
+        if self.wandb_run is not None:
+            try:
+                self.wandb_run.finish()  # type: ignore
+            except Exception:
+                pass
+
+        self._safe_shutdown()
+
+    def run(self):
+        """Orchestrate the experiment steps in correct order."""
         try:
-            wandb_run.finish()  # type: ignore
-        except Exception:
-            pass
+            self.prepare_datasets()
+            self.init_clients()
+            self.metrics.start()
+            accuracies = self.train_and_evaluate()
+            self.finalize(accuracies)
+        except Exception as e:
+            # Ensure cleanup even if training fails
+            self._safe_shutdown()
+            raise e
+        finally:
+            if self.metrics is not None:
+                try:
+                    self.metrics.end()
+                except Exception:
+                    pass
+            if self.wandb_run is not None:
+                try:
+                    self.wandb_run.finish()
+                except Exception:
+                    pass
+            if self.codecarbon_tracker is not None:
+                try:
+                    self.codecarbon_tracker.stop()
+                except Exception:
+                    pass
+            raise e
 
-    try:
-        for c in clients:
-            if hasattr(c, "shutdown"):
-                c.shutdown()
-    except Exception:
-        pass
+
+def run_experiment(config_path: str) -> None:
+    """Thin wrapper for backward compatibility."""
+    runner = ExperimentRunner(config_path)
+    runner.run()
 
 
 def main():
@@ -263,7 +330,7 @@ def main():
 
     args = parser.parse_args()
     if args.command == "simulate":
-        run_experiment(args.config)
+        ExperimentRunner(args.config).run()
 
 
 simulate_from_config = run_experiment
