@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torchvision.models import resnet18, ResNet18_Weights
+from torchvision import models
 import numpy as np
 
 # Imports for MQTT communication
@@ -10,7 +10,7 @@ import pickle
 import base64
 import paho.mqtt.client as mqtt
 from paho.mqtt.client import CallbackAPIVersion
-from ..core import ROLANN
+from ..rolann import ROLANN
 from ..metrics import MetricsRecorder
 import tenseal as ts
 from loguru import logger
@@ -28,27 +28,29 @@ class Client:
         port: int = 1883,
         encrypted: bool = False,
         ctx: ts.Context | None = None,
-        rolann: ROLANN | None = None,
         extractor: nn.Module | None = None,
     ):
         self.device = device
 
         if encrypted and (ctx is None or not ctx.has_secret_key()):
             raise ValueError("For the client, context must include a private key")
+
+        self.encrypted = encrypted
         self.rolann = ROLANN(num_classes=num_classes, encrypted=encrypted, context=ctx)
 
         self.loader = DataLoader(dataset, batch_size=128, shuffle=True)  # Local dataset
 
         # Feature extractor (default: pretrained frozen ResNet18)
         if extractor is None:
-            extractor = resnet18(weights=ResNet18_Weights.DEFAULT)
+            extractor = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+            # extractor = resnet18(weights=ResNet18_Weights.DEFAULT)
             extractor.fc = nn.Identity()
             for p in extractor.parameters():
                 p.requires_grad = False
         self.extractor = extractor
         # Keep models on CPU by default; move to target device only when needed
-        self.extractor.to("cpu")
         self.extractor.eval()
+        self.extractor.to("cpu")
         self.rolann.to("cpu")
 
         # MQTT configuration
@@ -69,6 +71,12 @@ class Client:
         self.client_id = client_id  # Client ID
         self._global_model_ready = threading.Event()
 
+    def _process_label(self, y):
+        return (
+            torch.nn.functional.one_hot(y, num_classes=self.rolann.num_classes) * 0.9
+            + 0.05
+        )
+
     def training(self):
         """
         Iterate over the local dataset, extract features using the local ResNet and
@@ -79,19 +87,12 @@ class Client:
 
         for x, y in self.loader:
             x = x.to(self.device)
+            y = self._process_label(y).to(self.device)
 
             with torch.no_grad():
                 features = self.extractor(x)
 
-            # Convert labels to one-hot to match the number of classes
-            label = (
-                torch.nn.functional.one_hot(y, num_classes=self.rolann.num_classes)
-                * 0.9
-                + 0.05
-            ).to(self.device)
-            self.rolann.aggregate_update(features, label)
-
-            # No per-batch progress logging here; the CLI handles a single tqdm over clients
+            self.rolann.aggregate_update(features, y)
 
         # Move models back to CPU to free VRAM
         self.extractor.to("cpu")
@@ -115,7 +116,7 @@ class Client:
         # Serialize and publish the update with metadata envelope
         payload = []
         for M_enc, US in zip(local_M, local_US):
-            if hasattr(M_enc, "serialize"):
+            if self.encrypted:
                 serialized = M_enc.serialize()
                 bM = base64.b64encode(serialized).decode()
                 m_format = "ckks"
@@ -147,6 +148,9 @@ class Client:
 
     # Receives the global model and decomposes it into M and US matrices
     def _on_global_model(self, client, userdata, msg):
+        # Ignore retained-clear messages (empty payload)
+        if not msg.payload:
+            return
         data = json.loads(msg.payload)
         # Accept both envelope with payload and raw list for backward compatibility
         items = (
@@ -220,7 +224,6 @@ class Client:
                 correct += (preds.argmax(dim=1) == y).sum().item()
                 total += y.size(0)
 
-        # Move back to CPU to save VRAM
         self.extractor.to("cpu")
         self.rolann.to("cpu")
         if self.device == "cuda" and torch.cuda.is_available():

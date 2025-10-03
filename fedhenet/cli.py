@@ -43,7 +43,7 @@ def run_experiment(config_path: str) -> None:
 
             run_ts = time.strftime("%Y%m%d_%H%M")
             exp_name = (
-                f"{cfg.dataset.name}-"
+                f"fedhenet-{cfg.dataset.name}-"
                 f"{cfg.dataset.split}{'-alpha' if cfg.dataset.split == 'dirichlet' else ''}-"
                 f"nc{cfg.dataset.num_clients}-"
                 f"enc{int(bool(cfg.communication.encrypted))}-"
@@ -52,9 +52,9 @@ def run_experiment(config_path: str) -> None:
             exp_cfg = {
                 "dataset.name": cfg.dataset.name,
                 "dataset.split": cfg.dataset.split,
-                "dataset.alpha": cfg.dataset.alpha
-                if cfg.dataset.split == "dirichlet"
-                else None,
+                "dataset.alpha": (
+                    cfg.dataset.alpha if cfg.dataset.split == "dirichlet" else None
+                ),
                 "dataset.num_clients": cfg.dataset.num_clients,
                 "extractor.type": cfg.extractor.type,
                 "num_classes": cfg.coordinator.num_classes,
@@ -98,7 +98,6 @@ def run_experiment(config_path: str) -> None:
         num_clients=cfg.dataset.num_clients,
         split=cfg.dataset.split,
         alpha=cfg.dataset.alpha,
-        train=cfg.dataset.train,
         subsample_fraction=cfg.dataset.subsample_fraction,
     )
     logger.info(
@@ -151,36 +150,52 @@ def run_experiment(config_path: str) -> None:
         clients.append(client)
 
     # Local training and send updates
-    logger.info("Starting local training across clients")
+    try:
+        logger.info("Starting local training across clients")
 
-    for c in tqdm(clients, desc="Clients", leave=True):
-        c.training()
-        c.aggregate_parcial()
-    logger.info("Local training done; updates published")
-
-    # Wait for global model broadcast (with timeout per client)
-    logger.info("Waiting for global model broadcast")
-    ready_count = 0
-    for c in clients:
-        if hasattr(c, "wait_for_global_model") and c.wait_for_global_model(
-            timeout_s=30.0
-        ):
-            ready_count += 1
-    if ready_count < len(clients):
-        logger.warning(
-            f"Only {ready_count}/{len(clients)} clients received the global model in time"
+        test_ds = load_dataset(
+            name=cfg.dataset.name, root=cfg.dataset.root, train=False, download=True
         )
+        loader = DataLoader(test_ds, batch_size=32)
 
-    # Evaluate on a single held-out test dataset (no partitioning)
-    test_ds = load_dataset(
-        name=cfg.dataset.name, root=cfg.dataset.root, train=False, download=True
-    )
-    loader = DataLoader(test_ds, batch_size=32)
+        for c in tqdm(clients, desc="Clients", leave=True):
+            c.training()
+            acc = c.evaluate(loader)
+            c.aggregate_parcial()
+        logger.info("Local training done; updates published")
 
-    acc = clients[0].evaluate(loader)
-    logger.info(f"Client 0 test acc = {acc:.2f}")
+        logger.info("Waiting for global model broadcast")
+        ready_count = 0
+        for c in clients:
+            if hasattr(c, "wait_for_global_model") and c.wait_for_global_model(
+                timeout_s=30.0
+            ):
+                ready_count += 1
+        if ready_count < len(clients):
+            logger.warning(
+                f"Only {ready_count}/{len(clients)} clients received the global model in time"
+            )
 
-    # Stop timers
+        # Evaluate on a single held-out test dataset (no partitioning)
+        test_ds = load_dataset(
+            name=cfg.dataset.name, root=cfg.dataset.root, train=False, download=True
+        )
+        loader = DataLoader(test_ds, batch_size=32)
+
+        for c in clients:
+            acc = c.evaluate(loader)
+            logger.info(f"Client {c.client_id} test acc = {acc:.2f}")
+    finally:
+        try:
+            coord.shutdown()
+        except Exception:
+            pass
+        try:
+            for c in clients:
+                c.shutdown()
+        except Exception:
+            pass
+
     metrics.end()
 
     # Log to external systems
@@ -229,7 +244,6 @@ def run_experiment(config_path: str) -> None:
         except Exception:
             pass
 
-    # Graceful shutdown of MQTT clients to avoid core dumps
     try:
         for c in clients:
             if hasattr(c, "shutdown"):

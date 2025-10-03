@@ -4,8 +4,10 @@ from typing import List, Optional
 
 import torch
 from torch.utils.data import Subset
-from torchvision.datasets import CIFAR10, MNIST
-from torchvision.transforms import ToTensor
+from torchvision.datasets import CIFAR10, CIFAR100, MNIST, VisionDataset
+from torchvision import transforms as T
+
+from loguru import logger
 
 
 def load_dataset(
@@ -14,24 +16,57 @@ def load_dataset(
     train: bool = True,
     download: bool = True,
     transform=None,
-):
+) -> VisionDataset:
     """
-    Minimal dataset loader for CIFAR-10 and MNIST.
-    Returns a torchvision Dataset.
+    Minimal dataset loader for CIFAR-10/100 and MNIST.
     """
     if transform is None:
-        transform = ToTensor()
+        logger.info(f"Loading dataset transforms for {name}")
+        lname = name.lower()
+        if lname == "mnist":
+            transform = T.Compose(
+                [
+                    T.Grayscale(num_output_channels=3),
+                    T.Resize(224),
+                    T.ToTensor(),
+                    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ]
+            )
+        elif lname == "cifar10":
+            transform = T.Compose(
+                [
+                    T.Resize((224, 224)),
+                    T.ToTensor(),
+                    T.Normalize(
+                        mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010]
+                    ),
+                ]
+            )
+        elif lname == "cifar100":
+            transform = T.Compose(
+                [
+                    T.Resize((224, 224)),
+                    T.ToTensor(),
+                    T.Normalize(
+                        mean=[0.5071, 0.4867, 0.4408], std=[0.2675, 0.2565, 0.2761]
+                    ),
+                ]
+            )
 
     lname = name.lower()
     if lname == "cifar10":
         return CIFAR10(root=root, train=train, download=download, transform=transform)
+    if lname == "cifar100":
+        return CIFAR100(root=root, train=train, download=download, transform=transform)
     if lname == "mnist":
         return MNIST(root=root, train=train, download=download, transform=transform)
-    raise ValueError(f"Unsupported dataset: {name}. Supported: cifar10, mnist")
+    raise ValueError(
+        f"Unsupported dataset: {name}. Supported: cifar10, cifar100, mnist"
+    )
 
 
-def _get_targets(dataset) -> torch.Tensor:
-    """Extract labels from a torchvision dataset as a 1D torch tensor."""
+def _get_targets(dataset: VisionDataset) -> torch.Tensor:
+    """Return labels from a torchvision dataset as a 1D torch tensor."""
     # Common attributes in torchvision datasets
     for attr in ("targets", "labels"):
         if hasattr(dataset, attr):
@@ -50,10 +85,10 @@ def _get_targets(dataset) -> torch.Tensor:
     return torch.tensor(labels, dtype=torch.long)
 
 
-def subsample_dataset(dataset, fraction: float, seed: int = 42) -> Subset:
-    """
-    Randomly subsample a fraction of the dataset. Returns a Subset.
-    """
+def subsample_dataset(
+    dataset: VisionDataset, fraction: float, seed: int = 42
+) -> Subset:
+    """Return a random subset with the given fraction of items."""
     if not (0.0 < fraction <= 1.0):
         raise ValueError("fraction must be in (0, 1]")
     rng = random.Random(seed)
@@ -64,31 +99,24 @@ def subsample_dataset(dataset, fraction: float, seed: int = 42) -> Subset:
     return Subset(dataset, indices[:k])
 
 
-def split_iid(dataset, num_clients: int, seed: int = 42) -> List[Subset]:
-    """
-    IID split: random uniform partition into num_clients roughly equal shards.
-    Returns a list of Subset (one per client).
-    """
+def split_iid(dataset: VisionDataset, num_clients: int, seed: int = 42) -> List[Subset]:
+    """Return IID shards split uniformly into num_clients subsets."""
     if num_clients <= 0:
         raise ValueError("num_clients must be > 0")
     rng = random.Random(seed)
     indices = list(range(len(dataset)))
     rng.shuffle(indices)
     shards = [indices[i::num_clients] for i in range(num_clients)]
-    return [Subset(dataset, shard) for shard in shards]
+    return [Subset(dataset, shard) for shard in shards]  # type: ignore
 
 
 def split_dirichlet(
-    dataset,
+    dataset: VisionDataset,
     num_clients: int,
     alpha: float = 0.5,
     seed: int = 42,
-) -> List[Subset]:
-    """
-    Non-IID Dirichlet split across clients. For each class, allocate samples to
-    clients according to Dirichlet(alpha) proportions.
-    Returns a list of Subset (one per client).
-    """
+) -> List[Subset[VisionDataset]]:
+    """Return non-IID Dirichlet shards across clients."""
     if num_clients <= 0:
         raise ValueError("num_clients must be > 0")
     if alpha <= 0:
@@ -150,10 +178,8 @@ def prepare_splits(
     subsample_fraction: Optional[float] = None,
     seed: int = 42,
     transform=None,
-):
-    """
-    Convenience: load dataset and return client Subsets per requested split.
-    """
+) -> List[Subset[VisionDataset]]:
+    """Load dataset and return client subsets per requested split."""
     ds = load_dataset(
         name=name, root=root, train=train, download=True, transform=transform
     )

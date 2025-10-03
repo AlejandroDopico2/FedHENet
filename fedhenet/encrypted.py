@@ -20,11 +20,9 @@ def create_context(
 
 def serialize_context(ctx: ts.Context, secret_key: bool) -> bytes:
     """
-    Serializes the context:
-     - secret_key=True -> includes the secret key (for clients).
-     - secret_key=False -> mutates the same ctx to public with make_context_public()
-                           (discards the secret key)
-                           and serializes without the secret key.
+    Serialize the context. If secret_key is True, include the secret key
+    (for clients). Otherwise, make the context public and serialize
+    without the secret key.
     """
     if secret_key:
         return ctx.serialize(save_secret_key=True)
@@ -33,7 +31,5 @@ def serialize_context(ctx: ts.Context, secret_key: bool) -> bytes:
 
 
 def deserialize_context(ctx_bytes: bytes) -> ts.Context:
-    """
-    Reconstructs a CKKS context from previous serialization.
-    """
+    """Reconstruct a CKKS context from bytes."""
     return ts.context_from(ctx_bytes)

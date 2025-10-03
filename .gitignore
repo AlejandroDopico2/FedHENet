@@ -209,3 +209,4 @@ datasets/
 
 # Misc
 .DS_Store
+wandb/

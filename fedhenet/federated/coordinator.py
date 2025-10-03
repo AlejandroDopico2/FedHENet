@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from torchvision.models import resnet18, ResNet18_Weights
+from torchvision import models
 
 # Imports for MQTT communication
 import json
@@ -9,7 +9,7 @@ import pickle
 import base64
 
 import tenseal as ts
-from ..core import ROLANN
+from ..rolann import ROLANN
 from ..transport import MQTTTransport
 from ..metrics import MetricsRecorder
 
@@ -38,25 +38,54 @@ class Coordinator:
         self.S_global = []  # Global S matrix accumulated for each class
 
         # Pretrained and frozen ResNet
-        self.extractor = resnet18(weights=ResNet18_Weights.DEFAULT)
-        self.extractor.fc = nn.Identity()  # Replace the final layer to extract features
+        self.extractor = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        self.extractor.fc = nn.Identity()
 
         for param in self.extractor.parameters():
-            param.requires_grad = False  # Freeze the ResNet
+            param.requires_grad = False
 
-        self.extractor.to(self.device)
-        self.extractor.eval()
+        self.extractor.eval().to("cpu")
 
         # MQTT transport
         self.mqtt = MQTTTransport(client_id="coordinator", broker=broker, port=port)
+        try:
+            self.mqtt.publish("federated/global_model", "", qos=1, retain=True)
+            for i in range(num_clients):
+                self.mqtt.publish(
+                    f"federated/client/{i}/update", "", qos=1, retain=True
+                )
+        except Exception:
+            pass
+
         self.mqtt.subscribe("federated/client/+/update", self._on_client_update)
         self.mqtt.loop_start()
 
-        self.num_clients = num_clients  # Number of clients
-        self._pending = []  # List to store pending results from clients
+        self.num_clients = num_clients
+        self._pending = []
+
+    def shutdown(self) -> None:
+        """
+        Cleanup retained MQTT topics and close the MQTT connection.
+        Called from the CLI on normal completion or interruption.
+        """
+        try:
+            self.mqtt.publish("federated/global_model", "", qos=1, retain=True)
+            for i in range(self.num_clients):
+                self.mqtt.publish(
+                    f"federated/client/{i}/update", "", qos=1, retain=True
+                )
+        except Exception:
+            pass
+        try:
+            self.mqtt.close()
+        except Exception:
+            pass
 
     # Function to receive results from clients
     def _on_client_update(self, client, userdata, msg):
+        # Ignore retained-clear messages (empty payload)
+        if not msg.payload:
+            return
         raw = msg.payload
         MetricsRecorder.instance().add_received_bytes(len(raw))
         data = json.loads(raw)  # Deserialize received message
@@ -134,9 +163,9 @@ class Coordinator:
 
             envelope = {
                 "version": 1,
-                "format": "ckks"
-                if hasattr(self.M_global[0], "serialize")
-                else "tensor",
+                "format": (
+                    "ckks" if hasattr(self.M_global[0], "serialize") else "tensor"
+                ),
                 "num_classes": len(self.M_global),
                 "payload": payload,
             }
@@ -212,9 +241,11 @@ class Coordinator:
             self.rolann.mg = mg_list  # Not tensor, is ckks vector
         else:
             mg_tensor_list = [
-                m
-                if isinstance(m, torch.Tensor)
-                else torch.from_numpy(m).to(self.device)
+                (
+                    m
+                    if isinstance(m, torch.Tensor)
+                    else torch.from_numpy(m).to(self.device)
+                )
                 for m in mg_list
             ]
             self.rolann.mg = mg_tensor_list

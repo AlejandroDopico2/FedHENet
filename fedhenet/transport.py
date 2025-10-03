@@ -5,10 +5,7 @@ from paho.mqtt.client import CallbackAPIVersion
 
 
 class MQTTTransport:
-    """
-    Minimal transport wrapper around paho-mqtt used by coordinator/client.
-    Keeps the same callback signature as paho for easy drop-in.
-    """
+    """Minimal transport wrapper around paho-mqtt."""
 
     def __init__(self, client_id: str, broker: str, port: int) -> None:
         self.client = MQTTClient(

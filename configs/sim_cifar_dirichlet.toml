@@ -3,9 +3,8 @@ name = "cifar10"
 root = "./data"
 split = "dirichlet"
 alpha = 0.3
-subsample_fraction = 0.1
-num_clients = 100
-train = true
+num_clients = 2
+subsample_fraction = 0.25
 
 [extractor]
 type = "resnet18"
@@ -25,5 +24,5 @@ broker = "localhost"
 port = 1883
 
 [logging]
-enable_wandb = true
-enable_codecarbon = true
+enable_wandb = false
+enable_codecarbon = false

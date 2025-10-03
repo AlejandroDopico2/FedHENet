@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-# Python 3.11+: stdlib tomllib. For 3.10, try tomli if available.
 try:
     import tomllib  # type: ignore[attr-defined]
 except Exception:  # pragma: no cover
@@ -22,7 +21,6 @@ class DatasetConfig:
     alpha: float = 0.5
     num_clients: int = 2
     subsample_fraction: Optional[float] = None
-    train: bool = True
 
 
 @dataclass
@@ -86,7 +84,6 @@ def _parse_toml(path: str) -> dict:
 def load_config(path: str) -> Config:
     """
     Load a TOML config file into Config dataclasses.
-    Expected sections: [dataset], [extractor], [communication], [client], [coordinator].
     """
     data = _parse_toml(path)
 
