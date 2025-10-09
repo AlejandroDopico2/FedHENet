@@ -1,0 +1,32 @@
+# conf/config.yaml
+seed: 42
+
+dataset:
+  name: cifar10
+  root: ./data
+  split: dirichlet
+  alpha: 0.5
+  num_clients: 10
+  subsample_fraction: 1.0
+
+coordinator:
+  num_classes: 10
+  device: cuda
+
+client:
+  device: cuda
+  batch_size: 128
+
+extractor:
+  type: resnet18
+  weights: default
+
+communication:
+  encrypted: false
+  broker: localhost
+  port: 1883
+
+logging:
+  enable_wandb: false
+  wandb_project: fedhenet
+  enable_codecarbon: false

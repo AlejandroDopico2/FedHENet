@@ -29,6 +29,7 @@ class Client:
         encrypted: bool = False,
         ctx: ts.Context | None = None,
         extractor: nn.Module | None = None,
+        seed: int | None = None,
     ):
         self.device = device
 
@@ -38,7 +39,11 @@ class Client:
         self.encrypted = encrypted
         self.rolann = ROLANN(num_classes=num_classes, encrypted=encrypted, context=ctx)
 
-        self.loader = DataLoader(dataset, batch_size=128, shuffle=True)  # Local dataset
+        # Use a generator for reproducible shuffling
+        generator = torch.Generator()
+        if seed is not None:
+            generator.manual_seed(seed + client_id)  # Different seed per client
+        self.loader = DataLoader(dataset, batch_size=128, shuffle=True, generator=generator)  # Local dataset
 
         # Feature extractor (default: pretrained frozen ResNet18)
         if extractor is None:
@@ -99,6 +104,8 @@ class Client:
         self.rolann.to("cpu")
         if self.device == "cuda" and torch.cuda.is_available():
             torch.cuda.empty_cache()
+
+        self.aggregate_parcial()
 
     def aggregate_parcial(self):
         """

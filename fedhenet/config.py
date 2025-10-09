@@ -34,12 +34,14 @@ class CoordinatorConfig:
     num_classes: int = 10
     device: str = "cpu"
     num_clients: int = 2
+    num_rounds: int = 1
 
 
 @dataclass
 class ClientConfig:
     device: str = "cpu"
     batch_size: int = 128
+    lr: float = 0.001
 
 
 @dataclass
@@ -53,15 +55,12 @@ class CommunicationConfig:
 class LoggingConfig:
     enable_wandb: bool = False
     wandb_project: Optional[str] = None
-    wandb_entity: Optional[str] = None
-    wandb_tags: list[str] = field(default_factory=list)
     enable_codecarbon: bool = False
-    country_iso_code: Optional[str] = None
-    measure_power_secs: int = 15
 
 
 @dataclass
 class Config:
+    seed: Optional[int] = None
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
     extractor: ExtractorConfig = field(default_factory=ExtractorConfig)
     communication: CommunicationConfig = field(default_factory=CommunicationConfig)
@@ -87,6 +86,7 @@ def load_config(path: str) -> Config:
     """
     data = _parse_toml(path)
 
+    seed = data.get("seed")
     ds = data.get("dataset", {})
     ex = data.get("extractor", {})
     co = data.get("coordinator", {})
@@ -95,6 +95,7 @@ def load_config(path: str) -> Config:
     cm = data.get("communication", {})
 
     cfg = Config(
+        seed=seed,
         dataset=DatasetConfig(**ds) if ds else DatasetConfig(),
         extractor=ExtractorConfig(**ex) if ex else ExtractorConfig(),
         communication=CommunicationConfig(**cm) if cm else CommunicationConfig(),
