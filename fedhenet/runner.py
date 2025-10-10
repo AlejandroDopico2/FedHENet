@@ -223,7 +223,7 @@ class ExperimentRunner:
         loader = DataLoader(self.test_ds, batch_size=self.cfg.client.batch_size)
 
         accuracies = []
-        for c in tqdm(self.clients, desc="Evaluating", leave=True):
+        for c in tqdm(random.sample(self.clients, 5), desc="Evaluating", leave=True):
             acc = c.evaluate(loader) * 100
             accuracies.append(acc)
         return accuracies

@@ -4,8 +4,8 @@ seed: 42
 dataset:
   name: cifar10
   root: ./data
-  split: dirichlet
-  alpha: 0.5
+  split: single_class
+  alpha: 0.1
   num_clients: 10
   subsample_fraction: 1.0
 

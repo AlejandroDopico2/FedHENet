@@ -168,6 +168,101 @@ def split_dirichlet(
     return [Subset(dataset, idxs) for idxs in client_indices]
 
 
+def split_single_class(
+    dataset: VisionDataset,
+    num_clients: int,
+    alpha: float = 0.5,
+    seed: int = 42,
+) -> List[Subset[VisionDataset]]:
+    """Assign each client data from exactly one class ensuring all classes appear.
+
+    Requires num_clients >= num_classes. Clients are distributed across classes
+    as evenly as possible.
+    """
+    if num_clients <= 0:
+        raise ValueError("num_clients must be > 0")
+    if alpha <= 0:
+        raise ValueError("alpha must be > 0")
+
+    targets = _get_targets(dataset)
+    num_classes = int(targets.max().item() + 1)
+
+    if num_clients < num_classes:
+        raise ValueError(
+            f"num_clients ({num_clients}) must be >= num_classes ({num_classes}) for 'single_class' split"
+        )
+
+    # Build per-class shuffled indices
+    class_indices: List[List[int]] = []
+    for c in range(num_classes):
+        idx = torch.nonzero(targets == c, as_tuple=False).view(-1).tolist()
+        random.Random(seed + c).shuffle(idx)
+        if len(idx) == 0:
+            raise ValueError(f"Class {c} has no samples in the dataset")
+        class_indices.append(idx)
+
+    # Determine how many clients are assigned to each class (at least one per class)
+    base = num_clients // num_classes
+    remainder = num_clients % num_classes
+    clients_per_class = [base + (1 if i < remainder else 0) for i in range(num_classes)]
+
+    # Prepare client buckets
+    client_indices: List[List[int]] = [[] for _ in range(num_clients)]
+    client_class: List[int] = [-1 for _ in range(num_clients)]  # track assigned class
+
+    # Map clients to classes in order and slice per-class indices accordingly
+    client_id = 0
+    for cls, k in enumerate(clients_per_class):
+        if k <= 0:
+            continue
+        idx_c = class_indices[cls]
+
+        # Allocate this class's samples to its k clients using Dirichlet(alpha)
+        n = len(idx_c)
+        if n < k:
+            raise ValueError(
+                f"Not enough samples in class {cls} ({n}) to assign at least 1 to each of {k} clients"
+            )
+
+        # Guarantee at least 1 sample per client, distribute the remaining via Dirichlet
+        remaining = n - k
+        if remaining == 0:
+            counts = [1 for _ in range(k)]
+        else:
+            concentration = torch.full((k,), float(alpha))
+            props = (
+                torch.distributions.Dirichlet(concentration).sample((1,)).squeeze(0)
+            )
+            props = (props / props.sum()).tolist()
+            extra = [int(round(p * remaining)) for p in props]
+            # Fix rounding drift to exactly match 'remaining'
+            drift = remaining - sum(extra)
+            for j in range(abs(drift)):
+                extra[j % k] += 1 if drift > 0 else -1
+            counts = [1 + e for e in extra]
+
+        start = 0
+        for j in range(k):
+            cnt = counts[j]
+            if cnt <= 0:
+                continue
+            part = idx_c[start : start + cnt]
+            client_indices[client_id].extend(part)
+            client_class[client_id] = cls
+            client_id += 1
+            start += cnt
+
+    # Shuffle per-client shard for randomness
+    for i in range(num_clients):
+        random.Random(seed + 10 + i).shuffle(client_indices[i])
+
+    # Debug: show each client's class and sample count
+    for i in range(num_clients):
+        print(f"Client {i}: {len(client_indices[i])} samples, class {client_class[i]}")
+
+    return [Subset(dataset, idxs) for idxs in client_indices]
+
+
 def prepare_splits(
     name: str,
     root: str,
@@ -191,7 +286,11 @@ def prepare_splits(
         return split_iid(ds, num_clients=num_clients, seed=seed)
     if split_lc in ("dirichlet", "dir"):
         return split_dirichlet(ds, num_clients=num_clients, alpha=alpha, seed=seed)
-    raise ValueError(f"Unsupported split: {split}. Use 'iid' or 'dirichlet'.")
+    if split_lc in ("single", "single_class", "one_class"):
+        return split_single_class(ds, num_clients=num_clients, alpha=alpha, seed=seed)
+    raise ValueError(
+        f"Unsupported split: {split}. Use 'iid', 'dirichlet', or 'single_class'."
+    )
 
 
 __all__ = [
@@ -199,5 +298,6 @@ __all__ = [
     "subsample_dataset",
     "split_iid",
     "split_dirichlet",
+    "split_single_class",
     "prepare_splits",
 ]
