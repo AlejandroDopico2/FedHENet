@@ -30,6 +30,7 @@ class ExperimentRunner:
         """Initialize the experiment runner with configuration and setup logging, trackers, and metrics."""
         if isinstance(config, str):
             from .config import load_config
+
             logger.info(f"Loading config from {config}")
             self.cfg = load_config(config)
         else:
@@ -50,8 +51,8 @@ class ExperimentRunner:
 
                 run_ts = time.strftime("%Y%m%d_%H%M")
                 exp_name = (
-                    f"fedhenet-{self.cfg.dataset.name}-"
-                    f"{self.cfg.dataset.split}{f'-alpha{self.cfg.dataset.alpha}' if self.cfg.dataset.split == 'dirichlet' else ''}-"
+                    f"{self.cfg.algorithm.name}-{self.cfg.dataset.name}-"
+                    f"{self.cfg.dataset.split}{f'-alpha{self.cfg.dataset.alpha}' if self.cfg.dataset.split in ['dirichlet', 'single_class'] else ''}-"
                     f"nc{self.cfg.dataset.num_clients}-"
                     f"enc{int(bool(self.cfg.communication.encrypted))}-"
                     f"{run_ts}"
@@ -61,11 +62,32 @@ class ExperimentRunner:
                     "dataset.split": self.cfg.dataset.split,
                     "dataset.alpha": (
                         self.cfg.dataset.alpha
-                        if self.cfg.dataset.split == "dirichlet"
+                        if self.cfg.dataset.split in ["dirichlet", "single_class"]
                         else None
                     ),
                     "dataset.num_clients": self.cfg.dataset.num_clients,
+                    "algorithm.num_rounds": (
+                        self.cfg.algorithm.num_rounds
+                        if self.cfg.algorithm.name != "fedhenet"
+                        else None
+                    ),
+                    "algorithm.num_epochs": (
+                        self.cfg.algorithm.num_epochs
+                        if self.cfg.algorithm.name != "fedhenet"
+                        else None
+                    ),
+                    "algorithm.learning_rate": (
+                        self.cfg.algorithm.learning_rate
+                        if self.cfg.algorithm.name != "fedhenet"
+                        else None
+                    ),
+                    "algorithm.mu": (
+                        self.cfg.algorithm.mu
+                        if self.cfg.algorithm.name == "fedprox"
+                        else None
+                    ),
                     "extractor.type": self.cfg.extractor.type,
+                    "algorithm.name": self.cfg.algorithm.name,
                     "num_classes": self.cfg.coordinator.num_classes,
                     "coordinator.device": self.cfg.coordinator.device,
                     "client.device": self.cfg.client.device,
@@ -99,9 +121,98 @@ class ExperimentRunner:
         self.coord = None
         self.clients = None
 
+        self.total_energy = 0.0
+        self.total_emissions = 0.0
+        self.duration_seconds = 0.0
+
+    def _log_round_metrics(self, round_idx: int, mean_accuracy: float) -> None:
+        """Centralized per-round logging (logger + optional W&B + MQTT + CodeCarbon)."""
+        logger.info(f"Round {round_idx} accuracy: {mean_accuracy:.2f}%")
+
+        if getattr(self.cfg, "logging", None) and self.cfg.logging.enable_wandb:
+            try:
+                import wandb  # type: ignore
+
+                wandb.log({"round_accuracy": mean_accuracy}, step=round_idx)
+
+                wandb.log(
+                    {
+                        "round_codecarbon_energy_kwh": self.total_energy,
+                        "round_codecarbon_emissions_kg": self.total_emissions,
+                        "round_codecarbon_duration_seconds": self.duration_seconds,
+                    },
+                    step=round_idx,
+                )
+
+                snapshot = self.metrics.snapshot()
+                published_mb = snapshot["published_bytes"] / (1024 * 1024)
+                received_mb = snapshot["received_bytes"] / (1024 * 1024)
+                wandb.log(
+                    {
+                        "mqtt_published_mb": published_mb,
+                        "mqtt_received_mb": received_mb,
+                        "round_elapsed_seconds": snapshot["elapsed_seconds"],
+                    },
+                    step=round_idx,
+                )
+            except Exception as e:
+                logger.warning(f"[Round {round_idx}] W&B log error: {e}")
+
+    def _log_final_metrics(self, accuracies: List[float]) -> None:
+        """Centralized final metrics logging (logger + optional W&B + CodeCarbon)."""
+        # Log to external systems
+        snapshot = self.metrics.snapshot()
+        logger.info(
+            f"Run stats: time={snapshot['elapsed_seconds']:.2f}s, pub={snapshot['published_bytes'] / (1024*1024):.2f} MB, recv={snapshot['received_bytes'] / (1024*1024):.2f} MB"
+        )
+
+        mean_accuracy = np.mean(accuracies)
+        std_accuracy = np.std(accuracies)
+
+        logger.info(f"Accuracy: {mean_accuracy:.2f} ± {std_accuracy:.3f}")
+
+        if self.wandb_run is not None:
+            try:
+                import wandb  # type: ignore
+
+                wandb.log(
+                    {
+                        "accuracy": mean_accuracy,
+                        "accuracy_std": std_accuracy,
+                        "elapsed_seconds": snapshot["elapsed_seconds"],
+                        "mqtt_published_bytes": snapshot["published_bytes"],
+                        "mqtt_received_bytes": snapshot["received_bytes"],
+                        "mqtt_published_mb": snapshot["published_bytes"] / (1024 * 1024),
+                        "mqtt_received_mb": snapshot["received_bytes"] / (1024 * 1024),
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"W&B log error: {e}")
+
+        # Final CodeCarbon metrics
+        if self.codecarbon_tracker is not None:
+            try:
+                emissions = self.codecarbon_tracker.stop()
+                emissions = self.codecarbon_tracker.final_emissions_data
+                if emissions is not None and self.wandb_run is not None:
+                    import wandb  # type: ignore
+
+                    wandb.log(
+                        {
+                            "codecarbon_emissions_kg": emissions.emissions,
+                            "codecarbon_energy_kwh": emissions.energy_consumed,
+                            "codecarbon_duration_seconds": emissions.duration,
+                            "codecarbon_total_energy_kwh": self.total_energy,
+                            "codecarbon_total_emissions_kg": self.total_emissions,
+                            "codecarbon_total_duration_seconds": self.duration_seconds,
+                        }
+                    )
+            except Exception as e:
+                logger.warning(f"CodeCarbon stop error: {e}")
+
     def _set_seeds(self):
         """Set random seeds for reproducibility."""
-        seed = getattr(self.cfg, 'seed', None)
+        seed = getattr(self.cfg, "seed", None)
         if seed is not None:
             logger.info(f"Setting random seed to {seed}")
             random.seed(seed)
@@ -122,7 +233,7 @@ class ExperimentRunner:
         logger.info(
             f"Preparing dataset: name={self.cfg.dataset.name}, split={self.cfg.dataset.split}, clients={self.cfg.dataset.num_clients}, subsample={self.cfg.dataset.subsample_fraction}"
         )
-        seed = getattr(self.cfg, 'seed', None)
+        seed = getattr(self.cfg, "seed", None)
         self.client_datasets = prepare_splits(
             name=self.cfg.dataset.name,
             root=self.cfg.dataset.root,
@@ -173,12 +284,15 @@ class ExperimentRunner:
             ctx=coord_ctx,
             broker=self.cfg.communication.broker,
             port=self.cfg.communication.port,
+            **self.cfg.algorithm,
         )
 
         logger.info("Initializing clients")
-        seed = getattr(self.cfg, 'seed', None)
+        seed = getattr(self.cfg, "seed", None)
         self.clients = []
-        for i, ds in enumerate(self.client_datasets):
+        for i, ds in tqdm(
+            enumerate(self.client_datasets), desc="Initializing clients", leave=True
+        ):
             client = Client(
                 num_classes=self.cfg.coordinator.num_classes,
                 dataset=ds,
@@ -189,58 +303,100 @@ class ExperimentRunner:
                 broker=self.cfg.communication.broker,
                 port=self.cfg.communication.port,
                 seed=seed,
+                **self.cfg.algorithm,
             )
             self.clients.append(client)
 
     def train_and_evaluate(self) -> List[float]:
         """Run local training, aggregation, and evaluation."""
-        # Local training and send updates
-        logger.info("Starting local training across clients")
-
-        for c in tqdm(self.clients, desc="Training", leave=True):
-            c.training()
-        logger.info("Local training done; updates published")
-
-        logger.info("Waiting for global model broadcast")
-        ready_count = 0
-        for c in self.clients:
-            if hasattr(c, "wait_for_global_model") and c.wait_for_global_model(
-                timeout_s=30.0
-            ):
-                ready_count += 1
-        if ready_count < len(self.clients):
-            logger.warning(
-                f"Only {ready_count}/{len(self.clients)} clients received the global model in time"
-            )
-
-        try: 
-            if self.codecarbon_tracker is not None:
-                self.codecarbon_tracker.stop()
-        except Exception:
-            pass
-
         # Evaluate on a single held-out test dataset (no partitioning)
         loader = DataLoader(self.test_ds, batch_size=self.cfg.client.batch_size)
 
+        # Local training and send updates
+        logger.info("Starting local training across clients")
+
+        for round_idx in range(self.cfg.algorithm.num_rounds):
+            logger.info(f"Starting round {round_idx}")
+            for c in tqdm(self.clients, desc="Training", leave=True):
+                c.training(round_idx=round_idx, epochs=self.cfg.algorithm.num_epochs)
+            logger.info("Local training done; updates published")
+
+            logger.info("Waiting for global model broadcast")
+            ready_count = 0
+            for c in self.clients:
+                if hasattr(c, "wait_for_global_model") and c.wait_for_global_model(
+                    timeout_s=60.0
+                ):
+                    ready_count += 1
+            if ready_count < len(self.clients):
+                logger.info("All clients received the global model")
+
+            if self.cfg.algorithm.name != "fedhenet":
+
+                # Round-level CodeCarbon logs only if more than one round
+                if (
+                    getattr(self.cfg, "logging", None)
+                    and self.cfg.logging.enable_codecarbon
+                    and self.cfg.algorithm.num_rounds > 1
+                ):
+                    try:
+                        self.codecarbon_tracker.stop()
+                        emissions = self.codecarbon_tracker.final_emissions_data
+                        if emissions is not None:
+                            self.total_energy += emissions.energy_consumed
+                            self.total_emissions += emissions.emissions
+                            self.duration_seconds += emissions.duration
+                    except Exception as e:
+                        logger.exception(f"Error stopping CodeCarbon tracker: {e}")
+
+                client_accuracies = []
+                for c in self.clients[:3]:
+                    acc = c.evaluate(loader) * 100
+                    client_accuracies.append(acc)
+                mean_accuracy = np.mean(client_accuracies)
+
+                self._log_round_metrics(round_idx=round_idx, mean_accuracy=mean_accuracy)
+
+                if (
+                    getattr(self.cfg, "logging", None)
+                    and self.cfg.logging.enable_codecarbon
+                    and self.cfg.algorithm.num_rounds > 1
+                ):
+                    try:
+                        self.codecarbon_tracker.start()
+                    except Exception as e:
+                        logger.exception(f"Error starting CodeCarbon tracker: {e}")
+        # Ensure tracker is stopped before final logging; final metrics helper will also handle stop and log
+        try:
+            if self.codecarbon_tracker is not None:
+                self.codecarbon_tracker.stop()
+        except Exception as e:
+            logger.exception(f"Error stopping CodeCarbon tracker: {e}")
+
         accuracies = []
-        for c in tqdm(random.sample(self.clients, 5), desc="Evaluating", leave=True):
+        for c in tqdm(
+            random.sample(self.clients, min(5, len(self.clients))),
+            desc="Evaluating",
+            leave=True,
+        ):
             acc = c.evaluate(loader) * 100
             accuracies.append(acc)
+
         return accuracies
 
     def _safe_shutdown(self):
         """Safely shutdown coordinator and clients with error handling."""
         try:
             if self.coord is not None:
-                self.coord.shutdown()
-        except Exception:
-            pass
+                self.coord.reset_topics(close_mqtt=True)
+        except Exception as e:
+            logger.warning(f"[Runner] Error during MQTT cleanup: {e}")
         try:
             if self.clients is not None:
                 for c in self.clients:
                     c.shutdown()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"[Runner] Error during MQTT shutdown: {e}")
 
     def finalize(self, accuracies: List[float]):
         """Shut down coordinator, clients, trackers, and log metrics."""
@@ -248,52 +404,8 @@ class ExperimentRunner:
 
         self.metrics.end()
 
-        # Log to external systems
-        snapshot = self.metrics.snapshot()
-        logger.info(
-            f"Run stats: time={snapshot['elapsed_seconds']:.2f}s, pub={snapshot['published_bytes']} bytes, recv={snapshot['received_bytes']} bytes"
-        )
-
-        mean_accuracy = np.mean(accuracies)
-        std_accuracy = np.std(accuracies)
-
-        logger.info(f"Accuracy: {mean_accuracy:.2f} ± {std_accuracy:.3f}")
-        if self.wandb_run is not None:
-            try:
-                import wandb  # type: ignore
-
-                wandb.log(
-                    {
-                        "accuracy": mean_accuracy,
-                        "accuracy_std": std_accuracy,
-                        "elapsed_seconds": snapshot["elapsed_seconds"],
-                        "mqtt_published_bytes": snapshot["published_bytes"],
-                        "mqtt_received_bytes": snapshot["received_bytes"],
-                    }
-                )
-            except Exception as e:
-                logger.warning(f"W&B log error: {e}")
-
-        if self.codecarbon_tracker is not None:
-            try:
-                emissions = self.codecarbon_tracker.stop()
-                emissions = self.codecarbon_tracker.final_emissions_data
-                if emissions is not None and self.wandb_run is not None:
-                    import wandb  # type: ignore
-
-                    wandb.log(
-                        {
-                            "codecarbon_emissions_kg": emissions.emissions,
-                            "codecarbon_energy_kwh": emissions.energy_consumed,
-                            "codecarbon_duration_seconds": emissions.duration,
-                        }
-                    )
-                if emissions is not None:
-                    logger.info(
-                        f"Energy: {emissions.energy_consumed:.6f} kWh, Emissions: {emissions.emissions:.6f} kgCO2, Training Duration: {emissions.duration:.6f} seconds"
-                    )
-            except Exception as e:
-                logger.warning(f"CodeCarbon stop error: {e}")
+        # Centralized final metrics logging
+        self._log_final_metrics(accuracies)
 
         if self.wandb_run is not None:
             try:

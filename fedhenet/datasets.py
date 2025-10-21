@@ -230,9 +230,7 @@ def split_single_class(
             counts = [1 for _ in range(k)]
         else:
             concentration = torch.full((k,), float(alpha))
-            props = (
-                torch.distributions.Dirichlet(concentration).sample((1,)).squeeze(0)
-            )
+            props = torch.distributions.Dirichlet(concentration).sample((1,)).squeeze(0)
             props = (props / props.sum()).tolist()
             extra = [int(round(p * remaining)) for p in props]
             # Fix rounding drift to exactly match 'remaining'
@@ -255,10 +253,6 @@ def split_single_class(
     # Shuffle per-client shard for randomness
     for i in range(num_clients):
         random.Random(seed + 10 + i).shuffle(client_indices[i])
-
-    # Debug: show each client's class and sample count
-    for i in range(num_clients):
-        print(f"Client {i}: {len(client_indices[i])} samples, class {client_class[i]}")
 
     return [Subset(dataset, idxs) for idxs in client_indices]
 

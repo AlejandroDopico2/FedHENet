@@ -2,15 +2,15 @@
 seed: 42
 
 dataset:
-  name: cifar10
+  name: cifar100
   root: ./data
-  split: dirichlet
-  alpha: 100
-  num_clients: 100
-  subsample_fraction: 0.05
+  split: single_class
+  alpha: 0.1
+  num_clients: 10
+  subsample_fraction: 1.0
 
 coordinator:
-  num_classes: 10
+  num_classes: 100
   device: cuda
 
 client:
@@ -21,15 +21,12 @@ extractor:
   type: resnet18
   weights: default
 
-algorithm:
-  name: fedavg
-
 communication:
   encrypted: false
   broker: localhost
   port: 1883
 
 logging:
-  enable_wandb: true
+  enable_wandb: false
   wandb_project: fedhenet
-  enable_codecarbon: true
+  enable_codecarbon: false

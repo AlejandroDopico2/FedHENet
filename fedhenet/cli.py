@@ -9,6 +9,7 @@ try:
     from omegaconf import DictConfig
     import hydra
     from hydra.core.config_store import ConfigStore
+
     HYDRA_AVAILABLE = True
 except ImportError:
     DictConfig = dict  # Fallback for when Hydra is not available
@@ -27,6 +28,7 @@ logger.add(
     "<cyan>{line}</cyan> - <level>{message}</level>",
 )
 
+
 def main():
     """
     Legacy argparse-based CLI for backward compatibility.
@@ -43,5 +45,6 @@ def main():
     args = parser.parse_args()
     if args.command == "simulate":
         ExperimentRunner(args.config).run()
+
 
 __all__ = ["main", "ExperimentRunner"]

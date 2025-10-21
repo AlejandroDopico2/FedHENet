@@ -59,6 +59,14 @@ class LoggingConfig:
 
 
 @dataclass
+class AlgorithmConfig:
+    name: str = "fedhenet"
+    num_rounds: int = 10
+    num_epochs: int = 1
+    learning_rate: float = 0.01
+    mu: Optional[float] = None
+
+@dataclass
 class Config:
     seed: Optional[int] = None
     dataset: DatasetConfig = field(default_factory=DatasetConfig)
@@ -67,6 +75,7 @@ class Config:
     coordinator: CoordinatorConfig = field(default_factory=CoordinatorConfig)
     client: ClientConfig = field(default_factory=ClientConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    algorithm: AlgorithmConfig = field(default_factory=AlgorithmConfig)
 
 
 def _parse_toml(path: str) -> dict:
@@ -93,7 +102,7 @@ def load_config(path: str) -> Config:
     cl = data.get("client", {})
     lg = data.get("logging", {})
     cm = data.get("communication", {})
-
+    al = data.get("algorithm", {})
     cfg = Config(
         seed=seed,
         dataset=DatasetConfig(**ds) if ds else DatasetConfig(),
@@ -102,6 +111,7 @@ def load_config(path: str) -> Config:
         coordinator=CoordinatorConfig(**co) if co else CoordinatorConfig(),
         client=ClientConfig(**cl) if cl else ClientConfig(),
         logging=LoggingConfig(**lg) if lg else LoggingConfig(),
+        algorithm=AlgorithmConfig(**al) if al else AlgorithmConfig(),
     )
     return cfg
 

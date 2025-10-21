@@ -13,6 +13,7 @@ from torch import Tensor
 
 import tenseal as ts
 
+
 class ROLANN(nn.Module):
     def __init__(
         self,
@@ -28,16 +29,15 @@ class ROLANN(nn.Module):
         self.finv = lambda x: torch.log(x / (1 - x))
         self.fderiv = lambda x: x * (1 - x)
 
-        self.w: List[Tensor] = []
-
         self.m: Optional[List[Tensor]] = None
         self.u: Optional[List[Tensor]] = None
         self.s: Optional[List[Tensor]] = None
         self.m_original_shapes: Optional[List[tuple]] = None
 
-        self.mg: List[Tensor] = []
-        self.ug: List[Tensor] = []
-        self.sg: List[Tensor] = []
+        self.mg: nn.ParameterList = nn.ParameterList()
+        self.ug: nn.ParameterList = nn.ParameterList()
+        self.sg: nn.ParameterList = nn.ParameterList()
+        self.w: nn.ParameterList = nn.ParameterList()
 
         self.encrypted: bool = encrypted
         self.context: Optional[ts.Context] = None
@@ -78,7 +78,7 @@ class ROLANN(nn.Module):
                 m_encrypted = ts.ckks_vector(self.context, m_plain)
                 m_list.append(m_encrypted)
                 m_original_shapes.append(m_i.shape)
-            
+
             self.m = m_list
             self.m_original_shapes = m_original_shapes
         else:
@@ -97,7 +97,7 @@ class ROLANN(nn.Module):
         ones = torch.ones((num_samples, 1), device=X.device)
         xp = torch.cat((ones, X), dim=1).T
 
-        W = torch.stack(self.w, dim=0)
+        W = torch.stack(list(self.w), dim=0)
         y_hat = self.f(torch.matmul(W, xp))
 
         return y_hat.T
@@ -107,9 +107,9 @@ class ROLANN(nn.Module):
             m_k, u_k, s_k = self.m[i], self.u[i], self.s[i]
 
             if i >= len(self.mg):
-                self.mg.append(m_k)
-                self.ug.append(u_k)
-                self.sg.append(s_k)
+                self.mg.append(nn.Parameter(m_k, requires_grad=False))
+                self.ug.append(nn.Parameter(u_k, requires_grad=False))
+                self.sg.append(nn.Parameter(s_k, requires_grad=False))
 
             else:
                 m_g, u_g, s_g = self.mg[i], self.ug[i], self.sg[i]
@@ -121,9 +121,9 @@ class ROLANN(nn.Module):
                 concatenated = torch.cat((us_g, us_k), dim=1)
                 u_new, s_new, _ = torch.linalg.svd(concatenated, full_matrices=False)
 
-                self.mg[i] = m_new
-                self.ug[i] = u_new
-                self.sg[i] = s_new
+                self.mg[i] = nn.Parameter(m_new, requires_grad=False)
+                self.ug[i] = nn.Parameter(u_new, requires_grad=False)
+                self.sg[i] = nn.Parameter(s_new, requires_grad=False)
 
     def _calculate_weights(
         self,
@@ -132,7 +132,7 @@ class ROLANN(nn.Module):
             return None
 
         # only on client: decrypt mg and generate self.w only once
-        new_w = []
+        new_w = nn.ParameterList()
         for i in range(self.num_classes):
             M = self.mg[i]
             # if it is CKKSVector, decrypt it
@@ -141,7 +141,11 @@ class ROLANN(nn.Module):
                     M.decrypt(), device=self.ug[i].device, dtype=torch.float32
                 )
                 # Reshape back to original dimensions for this class
-                if hasattr(self, 'm_original_shapes') and self.m_original_shapes is not None and i < len(self.m_original_shapes):
+                if (
+                    hasattr(self, "m_original_shapes")
+                    and self.m_original_shapes is not None
+                    and i < len(self.m_original_shapes)
+                ):
                     M = M_flat.reshape(self.m_original_shapes[i])
                 else:
                     # Fallback: assume it should be a column vector
@@ -153,7 +157,7 @@ class ROLANN(nn.Module):
             # Store as 1D vector of length features+1
             if w_i.dim() == 2 and w_i.shape[-1] == 1:
                 w_i = w_i.squeeze(-1)
-            new_w.append(w_i)
+            new_w.append(nn.Parameter(w_i, requires_grad=False))
         self.w = new_w
 
     def aggregate_update(self, X: Tensor, d: Tensor) -> None:

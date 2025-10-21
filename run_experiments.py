@@ -6,15 +6,17 @@ import time
 
 base_cfg = OmegaConf.load("conf/config.yaml")
 
-seeds = [42, 123, 999]
+# seeds = [42, 123, 999]
+seeds = [42]
 
 splits = [
-    {"type": "dirichlet", "alpha": 0.5}, 
+    # {"type": "dirichlet", "alpha": 1.0}, 
     {"type": "dirichlet", "alpha": 0.1}, 
+    {"type": "dirichlet", "alpha": 100}, 
     {"type": "iid", "alpha": None},      
 ]
 
-extra_client_runs = [100, 1000]
+extra_client_runs = [10, 100]
 encrypt_options = [False, True]
 
 def run_single(cfg, seed, split_type, alpha, num_clients, encrypted):
@@ -43,46 +45,20 @@ def run_single(cfg, seed, split_type, alpha, num_clients, encrypted):
 def main():
     for seed in seeds:
         for s in splits:
-            try:
-                run_single(
-                    cfg=base_cfg,
-                    seed=seed,
-                    split_type=s["type"],
-                    alpha=s["alpha"],
-                    num_clients=20,
-                    encrypted=False,
-                )
-            except Exception:
-                pass
-            try:
-                run_single(
-                    cfg=base_cfg,
-                    seed=seed,
-                    split_type=s["type"],
-                    alpha=s["alpha"],
-                    num_clients=20,
-                    encrypted=True,
-                )
-            except Exception:
-                logger.exception(f"Failed to run experiment with encrypted=True: seed={seed}, split={s['type']}, alpha={s['alpha']}, clients=20")
-                pass
-
-    first_dirichlet = splits[0]
-    for clients in extra_client_runs:
-        for encrypted in encrypt_options:
-            try:
-                run_single(
-                    cfg=base_cfg,
-                    seed=seeds[0], 
-                    split_type=first_dirichlet["type"],
-                    alpha=first_dirichlet["alpha"],
-                    num_clients=clients,
-                    encrypted=encrypted,
-                )
-            except Exception:
-                logger.exception(f"Failed to run experiment with clients={clients}, encrypted={encrypted}")
-                pass
-
+            for clients in extra_client_runs:
+                for encrypted in encrypt_options:
+                    try:
+                        run_single(
+                            cfg=base_cfg,
+                            seed=seed,
+                            split_type=s["type"],
+                            alpha=s["alpha"],
+                            num_clients=clients,
+                            encrypted=encrypted,
+                        )
+                    except Exception:
+                        pass
+            
 
 if __name__ == "__main__":
     main()

@@ -11,16 +11,27 @@ class MQTTTransport:
         self.client = MQTTClient(
             client_id=client_id, callback_api_version=CallbackAPIVersion.VERSION1
         )
-        self.client.connect(broker, port)
+        self._broker = broker
+        self._port = port
+
+    def connect(self) -> None:
+        self.client.connect(self._broker, self._port)
 
     def subscribe(self, topic: str, callback: Callable) -> None:
         self.client.message_callback_add(topic, callback)
         self.client.subscribe(topic, qos=1)
 
+    def unsubscribe(self, topic: str) -> None:
+        self.client.message_callback_remove(topic)
+        self.client.unsubscribe(topic)
+
     def publish(
         self, topic: str, payload: str, qos: int = 1, retain: bool = False
     ) -> None:
         self.client.publish(topic, payload, qos=qos, retain=retain)
+
+    def clean_topic(self, topic: str) -> None:
+        self.client.publish(topic, payload=b"", qos=1, retain=True)
 
     def loop_start(self) -> None:
         self.client.loop_start()
@@ -33,9 +44,11 @@ class MQTTTransport:
 
     def close(self) -> None:
         try:
+            self.disconnect()
+        except Exception as e:
+            raise e
+
+        try:
             self.loop_stop()
-        finally:
-            try:
-                self.disconnect()
-            except Exception:
-                pass
+        except Exception as e:
+            raise e

@@ -27,8 +27,15 @@ class MetricsRecorder:
                 cls._instance = MetricsRecorder()
             return cls._instance
 
+    @classmethod
+    def reset_instance(cls) -> None:
+        """Reset the singleton instance (useful for testing)."""
+        with cls._lock:
+            cls._instance = None
+
     # Timing
     def start(self) -> None:
+        self.reset()  # Reset metrics at the start of each experiment
         self._start_time_s = time.time()
 
     def end(self) -> None:
@@ -46,6 +53,13 @@ class MetricsRecorder:
 
     def add_received_bytes(self, size_bytes: int) -> None:
         self.comm.received_bytes += int(size_bytes)
+
+    def reset(self) -> None:
+        """Reset all metrics to zero."""
+        self.comm.published_bytes = 0
+        self.comm.received_bytes = 0
+        self._start_time_s = None
+        self._end_time_s = None
 
     def snapshot(self) -> dict:
         return {
