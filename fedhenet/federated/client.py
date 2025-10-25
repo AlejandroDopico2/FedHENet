@@ -1,18 +1,10 @@
-from ..algorithms.fedhenet import FedHENet
 from ..transport import MQTTTransport
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torchvision import models
-import numpy as np
 
 # Imports for MQTT communication
 import json
-import pickle
-import base64
-import paho.mqtt.client as mqtt
-from paho.mqtt.client import CallbackAPIVersion
-from ..rolann import ROLANN
 from ..metrics import MetricsRecorder
 import tenseal as ts
 from loguru import logger
@@ -52,7 +44,7 @@ class Client:
             dataset, batch_size=128, shuffle=True, generator=generator
         )
         self.num_samples = len(dataset)
-        
+
         self.algorithm = get_algorithm(
             device=device,
             num_classes=num_classes,
@@ -106,6 +98,11 @@ class Client:
         serialized_update = self.algorithm.serialize_update(update)
 
         encoded = json.dumps(serialized_update)
+        msg_size_bytes = len(encoded.encode("utf-8"))
+        msg_size_mb = msg_size_bytes / (1024 * 1024)
+        logger.info(
+            f"[Client {self.client_id}] Serialized update size: {msg_size_mb:.3f} MB"
+        )
         MetricsRecorder.instance().add_published_bytes(len(encoded.encode("utf-8")))
 
         # Connect just-in-time: subscribe to global, publish, wait, then disconnect

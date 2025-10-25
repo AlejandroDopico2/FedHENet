@@ -1,5 +1,5 @@
 import copy
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -43,22 +43,21 @@ class FedProx(FedAvg):
                 loss = self.criterion(preds, y)
 
                 prox_reg = 0.0
-                for (name, w) in model.named_parameters():
+                for name, w in model.named_parameters():
                     if not w.requires_grad:
                         continue
                     w_t = dict(global_model.named_parameters())[name]
                     w_t = w_t.detach().to(w.device)
                     prox_reg += ((w - w_t) ** 2).sum()
-                
+
                 loss = loss + (self.mu / 2) * prox_reg
 
                 loss.backward()
-                
+
                 optimizer.step()
 
                 total_loss += loss.item()
                 num_batches += 1
-
 
         # Move model back to CPU to save memory
         model.to("cpu")

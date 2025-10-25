@@ -1,7 +1,4 @@
-import numpy as np
 import torch
-import torch.nn as nn
-from torchvision import models
 
 # Imports for MQTT communication
 import json
@@ -9,7 +6,6 @@ from loguru import logger
 
 import tenseal as ts
 
-from ..algorithms.fedhenet import FedHENet
 from ..transport import MQTTTransport
 from ..metrics import MetricsRecorder
 from typing import Any
@@ -28,7 +24,6 @@ class Coordinator:
         ctx: ts.Context | None = None,
         **kwargs: Any,
     ):
-
         if encrypted and (ctx and ctx.has_secret_key()):
             raise ValueError(
                 "You passed a context with a private key to the coordinator"

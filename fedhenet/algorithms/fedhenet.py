@@ -4,16 +4,20 @@ from typing import Any, Dict, List, Optional
 
 import base64
 import pickle
-import numpy as np
 import torch
 import torch.nn as nn
 from torchvision import models
 import tenseal as ts
 from loguru import logger
+import zlib
+import numpy as np
+
 
 from ..rolann import ROLANN
 from .base import BaseAlgorithm
 
+FP16_MAX = 65504.0
+FP16_MIN = -65504.0
 
 class FedHENet(BaseAlgorithm):
     """
@@ -33,11 +37,25 @@ class FedHENet(BaseAlgorithm):
         **kwargs: Any,
     ) -> tuple[nn.Module, ROLANN]:
         super().__init__(name=name, device=device, **kwargs)
+        self.compress: bool = kwargs.get("compress", False)
+        self.use_float16: bool = kwargs.get("use_float16", False)
+
+    def _to_numpy(self, tensor: torch.Tensor) -> Any:
+        arr = tensor.cpu().detach().numpy()
+        if self.use_float16:
+            if np.isfinite(arr).all() and np.abs(arr).max() < 6e4:
+                logger.debug(f"[DEBUG] Casting to float16, shape {arr.shape}")
+                arr = arr.astype("float16")
+        return arr
+
+    def _from_numpy(self, arr: Any) -> torch.Tensor:
+        if self.use_float16 and arr.dtype == "float16":
+            arr = arr.astype("float32")
+        return torch.from_numpy(arr)
 
     def init_model(
         self, extractor: Optional[nn.Module] = None
     ) -> tuple[nn.Module, ROLANN]:
-
         rolann = ROLANN(num_classes=self.num_classes)
         if extractor is None:
             extractor = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
@@ -105,25 +123,28 @@ class FedHENet(BaseAlgorithm):
         return {"m": local_M, "us": local_US, "metadata": {"algorithm": "fedhenet"}}
 
     def serialize_update(
-        self, update: Dict[str, Any], encrypted: bool = False, ctx=None
+        self, update: Dict[str, Any]
     ) -> Dict[str, Any]:
-        if encrypted:
-            return self._serialize_ckks(update, ctx)
+        if self.encrypted:
+            return self._serialize_ckks(update)
         else:
             return self._serialize_plain(update)
 
     def _serialize_ckks(
-        self, update: Dict[str, Any], ctx: Optional[ts.Context] = None
+        self, update: Dict[str, Any]
     ) -> Dict[str, Any]:
         payload = []
-        # TODO: Integrate float16
         for M_item, US in zip(update["m"], update["us"]):
-            M_item = ts.ckks_vector(ctx, M_item.detach().cpu().numpy())
-            bM = base64.b64encode(M_item.serialize()).decode()
+            M_np = self._to_numpy(M_item)
+            M_ckks = ts.ckks_vector(self.ctx, M_np)
+            bM = base64.b64encode(M_ckks.serialize()).decode()
 
-            us_pickled = pickle.dumps(US.cpu().numpy())
-            bUS_bytes = base64.b64encode(us_pickled)
-            bUS = bUS_bytes.decode()
+            US_np = self._to_numpy(US)
+            us_pickled = pickle.dumps(US_np)
+            if self.compress:
+                us_pickled = zlib.compress(us_pickled)
+            bUS = base64.b64encode(us_pickled).decode()
+
             payload.append({"m": bM, "us": bUS})
 
         envelope = {
@@ -139,13 +160,18 @@ class FedHENet(BaseAlgorithm):
         payload = []
 
         for M_item, US in zip(update["m"], update["us"]):
-            m_pickled = pickle.dumps(M_item.cpu().numpy())
-            bM_bytes = base64.b64encode(m_pickled)
-            bM = bM_bytes.decode()
+            M_np = self._to_numpy(M_item)
+            US_np = self._to_numpy(US)
 
-            us_pickled = pickle.dumps(US.cpu().numpy())
-            bUS_bytes = base64.b64encode(us_pickled)
-            bUS = bUS_bytes.decode()
+            m_pickled = pickle.dumps(M_np)
+            us_pickled = pickle.dumps(US_np)
+
+            if self.compress:
+                m_pickled = zlib.compress(m_pickled)
+                us_pickled = zlib.compress(us_pickled)
+
+            bM = base64.b64encode(m_pickled).decode()
+            bUS = base64.b64encode(us_pickled).decode()
             payload.append({"m": bM, "us": bUS})
 
         envelope = {
@@ -153,7 +179,10 @@ class FedHENet(BaseAlgorithm):
             "format": "plain",
             "num_classes": len(payload),
             "payload": payload,
-            "metadata": update.get("metadata", {}),
+            "metadata": {
+                **update.get("metadata", {}),
+                "compressed": self.compress,
+            },
         }
         return envelope
 
@@ -255,19 +284,32 @@ class FedHENet(BaseAlgorithm):
             US_list = []
 
         for entry in payload:
-            M_np = pickle.loads(base64.b64decode(entry["m"]))
+            m_bytes = base64.b64decode(entry["m"])
+
+            if self.compress:
+                m_bytes = zlib.decompress(m_bytes)
+
+            M_np = pickle.loads(m_bytes)
 
             if global_update:
-                U_np = pickle.loads(base64.b64decode(entry["u"]))
-                S_np = pickle.loads(base64.b64decode(entry["s"]))
-            else:
-                US_np = pickle.loads(base64.b64decode(entry["us"]))
+                u_bytes = base64.b64decode(entry["u"])
+                s_bytes = base64.b64decode(entry["s"])
 
-            mg_list.append(torch.from_numpy(M_np))
-            if global_update:
+                if self.compress:
+                    u_bytes = zlib.decompress(u_bytes)
+                    s_bytes = zlib.decompress(s_bytes)
+
+                U_np = pickle.loads(u_bytes)
+                S_np = pickle.loads(s_bytes)
                 U_list.append(torch.from_numpy(U_np))
                 S_list.append(torch.from_numpy(S_np))
             else:
+                us_bytes = base64.b64decode(entry["us"])
+
+                if self.compress:
+                    us_bytes = zlib.decompress(us_bytes)
+
+                US_np = pickle.loads(us_bytes)
                 US_list.append(torch.from_numpy(US_np))
 
         envelope = {
@@ -300,23 +342,25 @@ class FedHENet(BaseAlgorithm):
             US_list = []
 
         for entry in payload:
-            # Rehydrate encrypted M
             M_bytes = base64.b64decode(entry["m"])
-
-            if self.ctx:
-                M = ts.ckks_vector_from(self.ctx, M_bytes)
-            else:
-                M = pickle.loads(M_bytes)
+            M = ts.ckks_vector_from(self.ctx, M_bytes)
             mg_list.append(M)
 
             if global_update:
-                U_np = pickle.loads(base64.b64decode(entry["u"]))
-                S_np = pickle.loads(base64.b64decode(entry["s"]))
-                U_list.append(torch.from_numpy(U_np))
-                S_list.append(torch.from_numpy(S_np))
+                u_bytes = base64.b64decode(entry["u"])
+                s_bytes = base64.b64decode(entry["s"])
+                if self.compress:
+                    u_bytes = zlib.decompress(u_bytes)
+                    s_bytes = zlib.decompress(s_bytes)
+                U_np = pickle.loads(u_bytes)
+                S_np = pickle.loads(s_bytes)
+                U_list.append(self._from_numpy(U_np))
+                S_list.append(self._from_numpy(S_np))
             else:
-                US_np = pickle.loads(base64.b64decode(entry["us"]))
-                US_list.append(torch.from_numpy(US_np))
+                us_bytes = base64.b64decode(entry["us"])
+                if self.compress:
+                    us_bytes = zlib.decompress(us_bytes)
+                US_list.append(self._from_numpy(pickle.loads(us_bytes)))
 
         envelope = {
             "m": mg_list,
@@ -331,7 +375,7 @@ class FedHENet(BaseAlgorithm):
         return envelope
 
     def serialize_global(
-        self, global_update: Dict[str, Any], encrypted: bool = False
+        self, global_update: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Serialize the aggregated global model (m, u, s) for broadcast.
@@ -344,29 +388,35 @@ class FedHENet(BaseAlgorithm):
 
         for M_global, U_global, S_global in zip(mg_list, ug_list, sg_list):
             # Serialize M
-            if encrypted:
-                if hasattr(M_global, "serialize"):
-                    m_bytes = M_global.serialize()
-                else:
-                    m_bytes = pickle.dumps(M_global.cpu().numpy())
+            if self.encrypted:
+                m_bytes = base64.b64encode(M_global.serialize()).decode()
             else:
-                m_bytes = pickle.dumps(M_global.cpu().numpy())
+                M_np = self._to_numpy(M_global)
+                m_pickled = pickle.dumps(M_np)
+                if self.compress:
+                    m_pickled = zlib.compress(m_pickled)
+                m_bytes = base64.b64encode(m_pickled).decode()
 
             # Serialize U and S separately
-            u_bytes = pickle.dumps(U_global.cpu().numpy())
-            s_bytes = pickle.dumps(S_global.cpu().numpy())
+            u_pickled = pickle.dumps(self._to_numpy(U_global))
+            s_pickled = pickle.dumps(self._to_numpy(S_global))
+            if self.compress:
+                u_pickled = zlib.compress(u_pickled)
+                s_pickled = zlib.compress(s_pickled)
+            u_bytes = base64.b64encode(u_pickled).decode()
+            s_bytes = base64.b64encode(s_pickled).decode()
 
             payload.append(
                 {
-                    "m": base64.b64encode(m_bytes).decode(),
-                    "u": base64.b64encode(u_bytes).decode(),
-                    "s": base64.b64encode(s_bytes).decode(),
+                    "m": m_bytes,
+                    "u": u_bytes,
+                    "s": s_bytes,
                 }
             )
 
         return {
             "version": 1,
-            "format": "ckks" if encrypted else "plain",
+            "format": "ckks" if self.encrypted else "plain",
             "num_classes": len(payload),
             "payload": payload,
             "metadata": global_update.get("metadata", {}),

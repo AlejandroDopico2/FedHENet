@@ -163,7 +163,7 @@ class ExperimentRunner:
         # Log to external systems
         snapshot = self.metrics.snapshot()
         logger.info(
-            f"Run stats: time={snapshot['elapsed_seconds']:.2f}s, pub={snapshot['published_bytes'] / (1024*1024):.2f} MB, recv={snapshot['received_bytes'] / (1024*1024):.2f} MB"
+            f"Run stats: time={snapshot['elapsed_seconds']:.2f}s, pub={snapshot['published_bytes'] / (1024 * 1024):.2f} MB, recv={snapshot['received_bytes'] / (1024 * 1024):.2f} MB"
         )
 
         mean_accuracy = np.mean(accuracies)
@@ -182,7 +182,8 @@ class ExperimentRunner:
                         "elapsed_seconds": snapshot["elapsed_seconds"],
                         "mqtt_published_bytes": snapshot["published_bytes"],
                         "mqtt_received_bytes": snapshot["received_bytes"],
-                        "mqtt_published_mb": snapshot["published_bytes"] / (1024 * 1024),
+                        "mqtt_published_mb": snapshot["published_bytes"]
+                        / (1024 * 1024),
                         "mqtt_received_mb": snapshot["received_bytes"] / (1024 * 1024),
                     }
                 )
@@ -315,10 +316,10 @@ class ExperimentRunner:
         # Local training and send updates
         logger.info("Starting local training across clients")
 
-        for round_idx in range(self.cfg.algorithm.num_rounds):
+        for round_idx in range(self.cfg.algorithm.get("num_rounds", 1)):
             logger.info(f"Starting round {round_idx}")
             for c in tqdm(self.clients, desc="Training", leave=True):
-                c.training(round_idx=round_idx, epochs=self.cfg.algorithm.num_epochs)
+                c.training(round_idx=round_idx, epochs=self.cfg.algorithm.get("num_epochs", 1))
             logger.info("Local training done; updates published")
 
             logger.info("Waiting for global model broadcast")
@@ -332,12 +333,11 @@ class ExperimentRunner:
                 logger.info("All clients received the global model")
 
             if self.cfg.algorithm.name != "fedhenet":
-
                 # Round-level CodeCarbon logs only if more than one round
                 if (
                     getattr(self.cfg, "logging", None)
                     and self.cfg.logging.enable_codecarbon
-                    and self.cfg.algorithm.num_rounds > 1
+                    and self.cfg.algorithm.get("num_rounds", 1) > 1
                 ):
                     try:
                         self.codecarbon_tracker.stop()
@@ -355,12 +355,14 @@ class ExperimentRunner:
                     client_accuracies.append(acc)
                 mean_accuracy = np.mean(client_accuracies)
 
-                self._log_round_metrics(round_idx=round_idx, mean_accuracy=mean_accuracy)
+                self._log_round_metrics(
+                    round_idx=round_idx, mean_accuracy=mean_accuracy
+                )
 
                 if (
                     getattr(self.cfg, "logging", None)
                     and self.cfg.logging.enable_codecarbon
-                    and self.cfg.algorithm.num_rounds > 1
+                    and self.cfg.algorithm.get("num_rounds", 1) > 1
                 ):
                     try:
                         self.codecarbon_tracker.start()

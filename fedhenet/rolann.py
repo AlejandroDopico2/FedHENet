@@ -13,12 +13,13 @@ from torch import Tensor
 
 import tenseal as ts
 
+from loguru import logger
+
 
 class ROLANN(nn.Module):
     def __init__(
         self,
         num_classes: int,
-        encrypted: bool = False,
         context: ts.Context | None = None,
     ):
         super(ROLANN, self).__init__()
@@ -39,15 +40,6 @@ class ROLANN(nn.Module):
         self.sg: nn.ParameterList = nn.ParameterList()
         self.w: nn.ParameterList = nn.ParameterList()
 
-        self.encrypted: bool = encrypted
-        self.context: Optional[ts.Context] = None
-
-        if self.encrypted:
-            if context is None:
-                raise ValueError("A context is required to work in encrypted mode. ")
-
-            self.context = context
-
     def update_weights(self, X: Tensor, d: Tensor) -> None:
         """
         Computes M, U, and S for a batch of classes in parallel, removing the original loop.
@@ -67,29 +59,13 @@ class ROLANN(nn.Module):
         f_d_vec = f_d.unsqueeze(-1)
         M = xp.unsqueeze(0) @ F @ (F @ f_d_vec)
 
-        if self.encrypted:
-            # Split M into per-class components and encrypt each separately
-            m_list = []
-            m_original_shapes = []
-            for i in range(self.num_classes):
-                m_i = M[i]  # Extract the i-th class component
-                m_flat = m_i.flatten()
-                m_plain = m_flat.detach().cpu().numpy().tolist()
-                m_encrypted = ts.ckks_vector(self.context, m_plain)
-                m_list.append(m_encrypted)
-                m_original_shapes.append(m_i.shape)
-
-            self.m = m_list
-            self.m_original_shapes = m_original_shapes
-        else:
-            self.m = M.squeeze(-1)
-
+        self.m = M.squeeze(-1)
         self.u = U
         self.s = S
 
     def forward(self, X: Tensor) -> Tensor:
-
         if not self.w:
+            logger.warning("[ROLANN] No weights found")
             return torch.zeros((X.size(0), self.num_classes), device=X.device)
 
         num_samples = X.size(0)
@@ -131,30 +107,13 @@ class ROLANN(nn.Module):
         if not self.mg:
             return None
 
-        # only on client: decrypt mg and generate self.w only once
         new_w = nn.ParameterList()
         for i in range(self.num_classes):
             M = self.mg[i]
-            # if it is CKKSVector, decrypt it
-            if self.encrypted:
-                M_flat = torch.tensor(
-                    M.decrypt(), device=self.ug[i].device, dtype=torch.float32
-                )
-                # Reshape back to original dimensions for this class
-                if (
-                    hasattr(self, "m_original_shapes")
-                    and self.m_original_shapes is not None
-                    and i < len(self.m_original_shapes)
-                ):
-                    M = M_flat.reshape(self.m_original_shapes[i])
-                else:
-                    # Fallback: assume it should be a column vector
-                    M = M_flat.unsqueeze(-1)
             U = self.ug[i]
             S = self.sg[i]
             diag = torch.diag(1 / (S * S))
             w_i = U @ (diag @ (U.T @ M))
-            # Store as 1D vector of length features+1
             if w_i.dim() == 2 and w_i.shape[-1] == 1:
                 w_i = w_i.squeeze(-1)
             new_w.append(nn.Parameter(w_i, requires_grad=False))

@@ -142,7 +142,6 @@ class FedAvg(BaseAlgorithm):
         data: Dict[str, Any],
         global_update: bool = False,
     ) -> Dict[str, Any]:
-
         if self.encrypted:
             return self._deserialize_ckks(data, global_update)
         else:

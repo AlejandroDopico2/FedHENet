@@ -21,6 +21,11 @@ extractor:
   type: resnet18
   weights: default
 
+algorithm:
+  name: fedhenet
+  compress: true
+  use_float16: true
+
 communication:
   encrypted: false
   broker: localhost

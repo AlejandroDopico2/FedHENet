@@ -22,7 +22,9 @@ extractor:
   weights: default
 
 algorithm:
-  name: fedavg
+  name: fedhenet
+  compress: true
+  use_float16: true
 
 communication:
   encrypted: false

@@ -65,6 +65,8 @@ class AlgorithmConfig:
     num_epochs: int = 1
     learning_rate: float = 0.01
     mu: Optional[float] = None
+    compress: bool = False
+    use_float16: bool = False
 
 @dataclass
 class Config:
