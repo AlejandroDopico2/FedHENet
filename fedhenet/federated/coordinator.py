@@ -78,6 +78,7 @@ class Coordinator:
     def _on_client_update(self, client, userdata, msg):
         # Ignore retained-clear messages (empty payload)
         if not msg.payload:
+            logger.warning("[Coordinator] Empty payload received from client")
             return
         raw = msg.payload
         MetricsRecorder.instance().add_received_bytes(len(raw))

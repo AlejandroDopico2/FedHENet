@@ -44,7 +44,6 @@ class FedHENet(BaseAlgorithm):
         arr = tensor.cpu().detach().numpy()
         if self.use_float16:
             if np.isfinite(arr).all() and np.abs(arr).max() < 6e4:
-                logger.debug(f"[DEBUG] Casting to float16, shape {arr.shape}")
                 arr = arr.astype("float16")
         return arr
 
@@ -251,6 +250,7 @@ class FedHENet(BaseAlgorithm):
             [nn.Parameter(s, requires_grad=False) for s in aggregated_update["s"]]
         )
         model._calculate_weights()
+
         return model
 
     def deserialize_update(
@@ -276,7 +276,7 @@ class FedHENet(BaseAlgorithm):
         self, data: Dict[str, Any], global_update: bool = False
     ) -> Dict[str, Any]:
         payload = data.get("payload", [])
-        mg_list = []
+        m_list = []
 
         if global_update:
             U_list, S_list = [], []
@@ -289,7 +289,9 @@ class FedHENet(BaseAlgorithm):
             if self.compress:
                 m_bytes = zlib.decompress(m_bytes)
 
-            M_np = pickle.loads(m_bytes)
+            m_np = pickle.loads(m_bytes)
+
+            m_list.append(torch.from_numpy(m_np))
 
             if global_update:
                 u_bytes = base64.b64decode(entry["u"])
@@ -313,7 +315,7 @@ class FedHENet(BaseAlgorithm):
                 US_list.append(torch.from_numpy(US_np))
 
         envelope = {
-            "m": mg_list,
+            "m": m_list,
             "metadata": data.get("metadata", {}),
         }
         if global_update:
