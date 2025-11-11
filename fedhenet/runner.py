@@ -9,6 +9,7 @@ import random
 from typing import List, Union
 import numpy as np
 import torch
+import os
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from loguru import logger
@@ -48,6 +49,18 @@ class ExperimentRunner:
         if getattr(self.cfg, "logging", None) and self.cfg.logging.enable_wandb:
             try:
                 import wandb  # type: ignore
+                from dotenv import load_dotenv
+
+                load_dotenv()
+                # Use environment variables for W&B authentication and defaults
+                wandb_api_key = os.getenv("WANDB_API_KEY")
+                wandb_project_env = os.getenv("WANDB_PROJECT")
+                wandb_entity_env = os.getenv("WANDB_ENTITY")
+                if wandb_api_key:
+                    try:
+                        wandb.login(key=wandb_api_key, relogin=True)  # type: ignore
+                    except Exception as e:
+                        logger.warning(f"W&B login failed: {e}")
 
                 run_ts = time.strftime("%Y%m%d_%H%M")
                 exp_name = (
@@ -97,7 +110,15 @@ class ExperimentRunner:
                     "communication.port": self.cfg.communication.port,
                 }
                 self.wandb_run = wandb.init(
-                    project=self.cfg.logging.wandb_project or "fedhenet",
+                    project=(
+                        wandb_project_env
+                        or getattr(self.cfg.logging, "wandb_project", None)
+                        or "fedhenet"
+                    ),
+                    entity=(
+                        wandb_entity_env
+                        or getattr(self.cfg.logging, "wandb_entity", None)
+                    ),
                     name=exp_name,
                     config=exp_cfg,
                 )
@@ -319,7 +340,9 @@ class ExperimentRunner:
         for round_idx in range(self.cfg.algorithm.get("num_rounds", 1)):
             logger.info(f"Starting round {round_idx}")
             for c in tqdm(self.clients, desc="Training", leave=True):
-                c.training(round_idx=round_idx, epochs=self.cfg.algorithm.get("num_epochs", 1))
+                c.training(
+                    round_idx=round_idx, epochs=self.cfg.algorithm.get("num_epochs", 1)
+                )
             logger.info("Local training done; updates published")
 
             logger.info("Waiting for global model broadcast")

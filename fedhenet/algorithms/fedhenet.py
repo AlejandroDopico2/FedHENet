@@ -19,6 +19,7 @@ from .base import BaseAlgorithm
 FP16_MAX = 65504.0
 FP16_MIN = -65504.0
 
+
 class FedHENet(BaseAlgorithm):
     """
     FedHENet algorithm wrapper implementing your FedHENet / ROLANN logic as a BaseAlgorithm.
@@ -121,17 +122,13 @@ class FedHENet(BaseAlgorithm):
         total_size_bytes = self.get_total_size_bytes(local_M, local_US)
         return {"m": local_M, "us": local_US, "metadata": {"algorithm": "fedhenet"}}
 
-    def serialize_update(
-        self, update: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def serialize_update(self, update: Dict[str, Any]) -> Dict[str, Any]:
         if self.encrypted:
             return self._serialize_ckks(update)
         else:
             return self._serialize_plain(update)
 
-    def _serialize_ckks(
-        self, update: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def _serialize_ckks(self, update: Dict[str, Any]) -> Dict[str, Any]:
         payload = []
         for M_item, US in zip(update["m"], update["us"]):
             M_np = self._to_numpy(M_item)
@@ -376,9 +373,7 @@ class FedHENet(BaseAlgorithm):
 
         return envelope
 
-    def serialize_global(
-        self, global_update: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def serialize_global(self, global_update: Dict[str, Any]) -> Dict[str, Any]:
         """
         Serialize the aggregated global model (m, u, s) for broadcast.
         Supports both plain and CKKS encryption.
