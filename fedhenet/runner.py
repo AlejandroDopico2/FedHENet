@@ -319,7 +319,9 @@ class ExperimentRunner:
         for round_idx in range(self.cfg.algorithm.get("num_rounds", 1)):
             logger.info(f"Starting round {round_idx}")
             for c in tqdm(self.clients, desc="Training", leave=True):
-                c.training(round_idx=round_idx, epochs=self.cfg.algorithm.get("num_epochs", 1))
+                c.training(
+                    round_idx=round_idx, epochs=self.cfg.algorithm.get("num_epochs", 1)
+                )
             logger.info("Local training done; updates published")
 
             logger.info("Waiting for global model broadcast")

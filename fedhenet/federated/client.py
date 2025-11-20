@@ -103,7 +103,7 @@ class Client:
         logger.info(
             f"[Client {self.client_id}] Serialized update size: {msg_size_mb:.3f} MB"
         )
-        MetricsRecorder.instance().add_published_bytes(len(encoded.encode("utf-8")))
+        MetricsRecorder.instance().add_published_bytes(msg_size_bytes)
 
         # Connect just-in-time: subscribe to global, publish, wait, then disconnect
         try:

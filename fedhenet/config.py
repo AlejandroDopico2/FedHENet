@@ -68,6 +68,7 @@ class AlgorithmConfig:
     compress: bool = False
     use_float16: bool = False
 
+
 @dataclass
 class Config:
     seed: Optional[int] = None

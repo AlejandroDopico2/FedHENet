@@ -5,9 +5,9 @@ dataset:
   name: cifar10
   root: ./data
   split: dirichlet
-  alpha: 100
-  num_clients: 100
-  subsample_fraction: 0.05
+  alpha: 1.0
+  num_clients: 10
+  subsample_fraction: 1.0
 
 coordinator:
   num_classes: 10
@@ -22,12 +22,15 @@ extractor:
   weights: default
 
 algorithm:
-  name: fedhenet
+  name: fedavg
+  num_rounds: 10
+  num_epochs: 1
+  learning_rate: 0.01
   compress: true
   use_float16: true
 
 communication:
-  encrypted: false
+  encrypted: true
   broker: localhost
   port: 1883
 

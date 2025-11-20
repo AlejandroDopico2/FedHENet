@@ -5,16 +5,6 @@ from loguru import logger
 
 from .runner import ExperimentRunner
 
-try:
-    from omegaconf import DictConfig
-    import hydra
-    from hydra.core.config_store import ConfigStore
-
-    HYDRA_AVAILABLE = True
-except ImportError:
-    DictConfig = dict  # Fallback for when Hydra is not available
-    HYDRA_AVAILABLE = False
-
 os.environ["CODECARBON_LOG_LEVEL"] = "WARNING"
 logging.getLogger("codecarbon").setLevel(logging.WARNING)
 
