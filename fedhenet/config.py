@@ -61,12 +61,12 @@ class LoggingConfig:
 @dataclass
 class AlgorithmConfig:
     name: str = "fedhenet"
-    num_rounds: int = 10
+    num_rounds: int = 1
     num_epochs: int = 1
-    learning_rate: float = 0.01
+    learning_rate: float = None
     mu: Optional[float] = None
-    compress: bool = False
-    use_float16: bool = False
+    compress: bool = True
+    use_float16: bool = True
 
 
 @dataclass

@@ -22,10 +22,10 @@ extractor:
   weights: default
 
 algorithm:
-  name: fedavg
-  num_rounds: 10
+  name: fedhenet
+  num_rounds: 1
   num_epochs: 1
-  learning_rate: 0.01
+  learning_rate: null
   compress: true
   use_float16: true
 
@@ -35,6 +35,6 @@ communication:
   port: 1883
 
 logging:
-  enable_wandb: true
-  wandb_project: fedhenet
   enable_codecarbon: true
+  enable_wandb: false
+  wandb_project: fedhenet
