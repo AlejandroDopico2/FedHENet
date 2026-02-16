@@ -8,8 +8,8 @@
 
 **[Alejandro Dopico-Castro](https://github.com/AlejandroDopico2), [Oscar Fontenla-Romero](https://scholar.google.com/citations?user=J1gBZh0AAAAJ&hl=en), [Bertha Guijarro-Berdiñas](https://scholar.google.com/citations?user=4uEW-IoAAAAJ&hl=en), [Amparo Alonso-Betanzos](https://scholar.google.com/citations?user=4SX-5-oAAAAJ&hl=en), [Iván Pérez Digón](https://github.com/Ivanprdg)**
 
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-%3E%3D2.08-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-%3E%3D2.8-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![arXiv](https://img.shields.io/badge/arXiv:2602.13024-b31b1b.svg)](https://arxiv.org/abs/2602.13024)
 [![Code style: Ruff](https://img.shields.io/badge/Code%20style-Ruff-D7FF64?logo=ruff&logoColor=black)](https://docs.astral.sh/ruff/)
